@@ -1,30 +1,37 @@
-import { StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { BatteryIndicator } from "@/components/BatteryIndicator";
+import { PowerTips } from "@/components/PowerTips";
+import { useBattery } from "@/hooks/use-battery";
+import Colors from "@/constants/colors";
 
-export default function TabOneScreen() {
+export default function BatteryScreen() {
+  const { level, isCharging } = useBattery();
+  const insets = useSafeAreaInsets();
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Tab One</Text>
-      <View style={styles.separator} />
-      <Text>
-        This is an example tab. You can edit it in app/%28tabs%29/index.tsx.
-      </Text>
-    </View>
+    <ScrollView
+      style={[styles.container, { paddingTop: insets.top }]}
+      contentContainerStyle={styles.content}
+    >
+      <View style={styles.main}>
+        <BatteryIndicator level={level} isCharging={isCharging} />
+        <PowerTips />
+      </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
+    backgroundColor: Colors.light.background,
   },
-  title: {
-    fontSize: 20,
-    fontWeight: "bold",
+  content: {
+    flexGrow: 1,
   },
-  separator: {
-    marginVertical: 30,
-    height: 1,
-    width: "80%",
+  main: {
+    flex: 1,
+    paddingVertical: 20,
   },
 });
