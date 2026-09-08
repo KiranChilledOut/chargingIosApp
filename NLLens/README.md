@@ -119,11 +119,22 @@ swift test
      -H "Authorization: Bearer $NEBIUS_API_KEY" | jq -r '.data[].id'
    ```
 
-3. Verify it works **before** wiring Back Tap: on the **Screen** tab, tap the
-   photo button and pick any Dutch screenshot from Photos. If that produces a
-   translated overlay, the whole pipeline is good.
+3. Verify it works **before** wiring Back Tap. Two checks, in order:
+
+   ```bash
+   NEBIUS_API_KEY=... make smoke      # key, model id, and JSON output
+   ```
+
+   then in the app, on the **Screen** tab, tap the photo button and pick any
+   Dutch screenshot from Photos. If that produces a translated overlay, the
+   whole pipeline is good. Doing it in this order tells you whether a failure
+   is your key, your model choice, or the app.
 4. Create the shortcut: Shortcuts → new shortcut → **Take Screenshot** →
    **Translate Screen** (from NL Lens), passing the screenshot in.
+
+   The screenshot has to come from the Shortcuts action rather than from the
+   app, because no app can capture another app's screen — Shortcuts holds that
+   privilege and NL Lens does not. That is why this one manual step exists.
 5. Settings → Accessibility → Touch → **Back Tap** → **Double Tap** → your
    shortcut.
 6. Optional: repeat with **Explain Screen** on **Triple Tap**.

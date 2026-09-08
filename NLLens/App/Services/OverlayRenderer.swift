@@ -47,7 +47,7 @@ public enum OverlayRenderer {
         format.opaque = true
 
         let renderer = UIGraphicsImageRenderer(size: size, format: format)
-        return renderer.image { context in
+        return renderer.image { _ in
             image.draw(in: CGRect(origin: .zero, size: size))
 
             for block in blocks {
@@ -77,8 +77,7 @@ public enum OverlayRenderer {
                     text: block.translatedText,
                     in: rect.insetBy(dx: style.inset, dy: 0),
                     color: foreground,
-                    style: style,
-                    context: context.cgContext
+                    style: style
                 )
             }
         }
@@ -90,15 +89,19 @@ public enum OverlayRenderer {
         text: String,
         in rect: CGRect,
         color: UIColor,
-        style: Style,
-        context: CGContext
+        style: Style
     ) {
-        let maxFontSize = max(style.minimumFontSize, rect.height * style.maximumFontScale)
+        // Conversions are explicit rather than leaning on the implicit
+        // CGFloat/Double bridging, which only exists on Apple platforms.
+        let boxWidth = Double(rect.width)
+        let boxHeight = Double(rect.height)
+        let maxFontSize = max(style.minimumFontSize, boxHeight * style.maximumFontScale)
+
         let fontSize = LayoutFitting.fittedFontSize(
             text: text,
-            boxWidth: Double(rect.width),
-            boxHeight: Double(rect.height),
-            maxFontSize: Double(maxFontSize),
+            boxWidth: boxWidth,
+            boxHeight: boxHeight,
+            maxFontSize: maxFontSize,
             minFontSize: style.minimumFontSize
         )
 
