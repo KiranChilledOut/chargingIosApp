@@ -167,7 +167,8 @@ public struct TranslationPipeline: Sendable {
             ],
             model: textModel,
             temperature: 0.1,
-            maxTokens: 4096
+            maxTokens: 4096,
+            responseFormat: .jsonSchema(Schemas.translationUnits)
         )
         return try JSONExtraction.decode([TranslationUnit].self, from: raw)
     }
@@ -191,7 +192,8 @@ public struct TranslationPipeline: Sendable {
             ],
             model: visionModel,
             temperature: 0.2,
-            maxTokens: 1024
+            maxTokens: 1024,
+            responseFormat: .jsonSchema(Schemas.screenExplanation)
         )
         return try JSONExtraction.decode(ScreenExplanation.self, from: raw)
     }
@@ -212,7 +214,8 @@ public struct TranslationPipeline: Sendable {
             ],
             model: textModel,
             temperature: 0.3,
-            maxTokens: 1024
+            maxTokens: 1024,
+            responseFormat: .jsonSchema(Schemas.composeResult)
         )
         var result = try JSONExtraction.decode(ComposeResult.self, from: raw)
         result.dutch = map.restore(in: result.dutch)

@@ -105,15 +105,43 @@ public struct NebiusClient: Sendable {
         messages: [ChatMessage],
         model: String,
         temperature: Double = 0.2,
-        maxTokens: Int = 2048
+        maxTokens: Int = 2048,
+        responseFormat: ResponseFormat? = nil
     ) async throws -> String {
         guard configuration.isUsable else { throw NebiusError.missingAPIKey }
 
+        do {
+            return try await send(
+                messages: messages, model: model, temperature: temperature,
+                maxTokens: maxTokens, responseFormat: responseFormat
+            )
+        } catch let error as NebiusError {
+            // Not every hosted model implements `response_format`, and one that
+            // does not rejects the whole request. Rather than making the caller
+            // know which models support it, drop the constraint and try once
+            // more — prompt-level instructions plus `JSONExtraction` still get
+            // us structured output most of the time.
+            guard responseFormat != nil, case .clientError = error else { throw error }
+            return try await send(
+                messages: messages, model: model, temperature: temperature,
+                maxTokens: maxTokens, responseFormat: nil
+            )
+        }
+    }
+
+    private func send(
+        messages: [ChatMessage],
+        model: String,
+        temperature: Double,
+        maxTokens: Int,
+        responseFormat: ResponseFormat?
+    ) async throws -> String {
         let body = try encodeRequestBody(
             messages: messages,
             model: model,
             temperature: temperature,
-            maxTokens: maxTokens
+            maxTokens: maxTokens,
+            responseFormat: responseFormat
         )
         let request = HTTPRequest(
             url: configuration.baseURL.appendingPathComponent("chat/completions"),
@@ -194,12 +222,24 @@ public struct NebiusClient: Sendable {
         }
     }
 
-    /// Pulls `error.message` out of an OpenAI-style error envelope.
+    /// Pulls a human-readable reason out of an error body.
+    ///
+    /// Nebius is OpenAI-compatible for requests but not for errors: it returns
+    /// `{"detail": "..."}` rather than `{"error": {"message": "..."}}`, and
+    /// FastAPI-style validation failures make `detail` an array of objects.
+    /// Handling only the OpenAI shape leaves the user staring at a blank
+    /// reason exactly when they most need it — a wrong model id, an expired
+    /// key — so all three shapes are read.
     static func errorMessage(from body: Data) -> String {
         guard
             let root = try? JSONSerialization.jsonObject(with: body) as? [String: Any]
         else { return "" }
 
+        if let detail = root["detail"] as? String { return detail }
+        if let details = root["detail"] as? [[String: Any]] {
+            let messages = details.compactMap { $0["msg"] as? String }
+            if !messages.isEmpty { return messages.joined(separator: "; ") }
+        }
         if let error = root["error"] as? [String: Any],
            let message = error["message"] as? String {
             return message
@@ -252,10 +292,12 @@ public struct NebiusClient: Sendable {
         let messages: [WireMessage]
         let temperature: Double
         let maxTokens: Int
+        let responseFormat: ResponseFormat?
 
         enum CodingKeys: String, CodingKey {
             case model, messages, temperature
             case maxTokens = "max_tokens"
+            case responseFormat = "response_format"
         }
     }
 
@@ -263,7 +305,8 @@ public struct NebiusClient: Sendable {
         messages: [ChatMessage],
         model: String,
         temperature: Double,
-        maxTokens: Int
+        maxTokens: Int,
+        responseFormat: ResponseFormat? = nil
     ) throws -> Data {
         let wireMessages: [WireMessage] = messages.map { message in
             // Text-only messages use the plain string form. Some hosted models
@@ -298,7 +341,8 @@ public struct NebiusClient: Sendable {
             model: model,
             messages: wireMessages,
             temperature: temperature,
-            maxTokens: maxTokens
+            maxTokens: maxTokens,
+            responseFormat: responseFormat
         ))
     }
 

@@ -133,4 +133,106 @@ final class NebiusClientTests: XCTestCase {
         let body = Data(#"{"error":{"message":"model not found"}}"#.utf8)
         XCTAssertEqual(NebiusClient.errorMessage(from: body), "model not found")
     }
+
+    func testNebiusDetailEnvelopeIsRead() {
+        // Verified against the live endpoint: Nebius returns `detail`, not the
+        // OpenAI `error.message` shape.
+        let body = Data(#"{"detail":"Couldn't authenticate. Reason: token is not present"}"#.utf8)
+        XCTAssertEqual(
+            NebiusClient.errorMessage(from: body),
+            "Couldn't authenticate. Reason: token is not present"
+        )
+    }
+
+    func testFastAPIValidationDetailArrayIsRead() {
+        let body = Data(#"{"detail":[{"loc":["body","model"],"msg":"field required","type":"value_error"}]}"#.utf8)
+        XCTAssertEqual(NebiusClient.errorMessage(from: body), "field required")
+    }
+
+    func testClientErrorSurfacesTheReason() {
+        let body = Data(#"{"detail":"unknown model: bogus/model"}"#.utf8)
+        let error = NebiusClient.mapStatus(404, body: body)
+        XCTAssertEqual(error.userMessage, "unknown model: bogus/model")
+    }
+}
+
+final class ResponseFormatTests: XCTestCase {
+
+    func testSchemaIsSentOnTheWire() async throws {
+        let transport = MockTransport(completion: "ok")
+        let client = NebiusClient.test(transport: transport)
+        _ = try await client.complete(
+            messages: [.user("hi")], model: "m",
+            responseFormat: .jsonSchema(Schemas.translationUnits)
+        )
+        let body = transport.recordedBodies().joined()
+        XCTAssertTrue(body.contains("response_format"))
+        XCTAssertTrue(body.contains("json_schema"))
+        XCTAssertTrue(body.contains(#""nl""#), "schema properties should be present")
+    }
+
+    func testJSONObjectModeWireShape() async throws {
+        let transport = MockTransport(completion: "ok")
+        let client = NebiusClient.test(transport: transport)
+        _ = try await client.complete(
+            messages: [.user("hi")], model: "m", responseFormat: .jsonObject
+        )
+        XCTAssertTrue(transport.recordedBodies().joined().contains("json_object"))
+    }
+
+    func testUnsupportedResponseFormatFallsBackWithoutIt() async throws {
+        // A model that does not implement response_format rejects the request.
+        // The client should drop the constraint and try once more.
+        let transport = MockTransport(stubs: [
+            .json(#"{"detail":"response_format is not supported"}"#, status: 400),
+            .completion("recovered"),
+        ])
+        let client = NebiusClient.test(transport: transport)
+
+        let result = try await client.complete(
+            messages: [.user("hi")], model: "m",
+            responseFormat: .jsonSchema(Schemas.translationUnits)
+        )
+        XCTAssertEqual(result, "recovered")
+        XCTAssertEqual(transport.requestCount, 2)
+
+        let bodies = transport.recordedBodies()
+        XCTAssertTrue(bodies[0].contains("response_format"), "first attempt constrained")
+        XCTAssertFalse(bodies[1].contains("response_format"), "retry must drop it")
+    }
+
+    func testNoFallbackLoopWhenNoResponseFormatWasSet() async {
+        let transport = MockTransport(stubs: [.json(#"{"detail":"bad"}"#, status: 400)])
+        let client = NebiusClient.test(transport: transport)
+
+        do {
+            _ = try await client.complete(messages: [.user("hi")], model: "m")
+            XCTFail("expected clientError")
+        } catch let error as NebiusError {
+            guard case .clientError = error else { return XCTFail("wrong: \(error)") }
+        } catch {
+            XCTFail("wrong: \(error)")
+        }
+        XCTAssertEqual(transport.requestCount, 1, "must not retry without a format to drop")
+    }
+
+    func testAuthFailureIsNotTreatedAsAFormatProblem() async {
+        let transport = MockTransport(stubs: [
+            .json(#"{"detail":"Couldn't authenticate"}"#, status: 401),
+            .completion("should not be reached"),
+        ])
+        let client = NebiusClient.test(transport: transport)
+
+        do {
+            _ = try await client.complete(
+                messages: [.user("hi")], model: "m", responseFormat: .jsonObject
+            )
+            XCTFail("expected unauthorized")
+        } catch let error as NebiusError {
+            XCTAssertEqual(error, .unauthorized)
+        } catch {
+            XCTFail("wrong: \(error)")
+        }
+        XCTAssertEqual(transport.requestCount, 1)
+    }
 }

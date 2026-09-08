@@ -48,6 +48,12 @@ screenshot ──▶ Vision OCR ──▶ group lines ──▶ cache lookup ─
 Only the middle-right step touches the network, and only ever with text that
 has been through redaction.
 
+Model output is constrained with Nebius's `response_format` JSON Schema
+support, which is a much stronger guarantee than asking for JSON in the
+prompt. Not every hosted model implements it, so a rejected request is retried
+once without the constraint, and a forgiving parser (markdown fences, prose
+padding, trailing commas) backs both paths up.
+
 ## Privacy
 
 The whole point is pointing this at banking, insurance and government screens —
@@ -168,9 +174,10 @@ that can actually be wrong.
 
 Be aware of what has and hasn't been checked:
 
-- **`NLLensCore` — verified.** 82 tests pass on Swift 6.1. Covers the redaction
-  checksums, the placeholder round-trip, malformed-model-output parsing, cache
-  persistence and compaction, the coordinate flip, layout maths, and pipeline
+- **`NLLensCore` — verified.** 96 tests pass on Swift 6.1, no warnings.
+  Covers the redaction checksums, the placeholder round-trip,
+  malformed-model-output parsing, cache persistence and compaction, the
+  coordinate flip, layout maths, the exact request wire shape, and pipeline
   behaviour against a mock transport (missing ids, duplicate ids, cache hits,
   batching, cloud-off).
 - **`App/` — written but never compiled.** It was developed on Linux, where no
@@ -179,5 +186,16 @@ Be aware of what has and hasn't been checked:
   to fix some compile errors on first build — most likely candidates are App
   Intents API details and iOS 18 `TranslationSession` specifics, which change
   between SDK versions.
-- **No live Nebius call has been made.** The client is tested against a mock.
-  The default model ids are plausible but unconfirmed; use the model picker.
+- **Endpoint verified live; no authenticated call made.** Both
+  `/v1/models` and `/v1/chat/completions` were probed unauthenticated and
+  return 401, confirming the base URL and paths are right. Two things were
+  corrected as a result:
+  - Nebius returns errors as `{"detail": "..."}`, **not** the OpenAI
+    `{"error":{"message":...}}` shape. Reading only the OpenAI shape left
+    every failure with a blank reason — exactly when you most need it.
+  - Nebius puts a JSON Schema **directly** under `json_schema`, not inside
+    OpenAI's newer `{name, strict, schema}` wrapper.
+
+  No request with a real key has been made, so model behaviour and token
+  costs are unmeasured. **The default model ids are plausible but
+  unconfirmed** — use the in-app model picker.
