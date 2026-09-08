@@ -1,0 +1,52 @@
+name: NLLens
+
+options:
+  bundleIdPrefix: com.nllens
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+  groupSortPosition: none
+
+packages:
+  NLLensCore:
+    path: .
+
+targets:
+  NLLens:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+    dependencies:
+      - package: NLLensCore
+        product: NLLensCore
+    info:
+      path: App/Support/Info.plist
+      properties:
+        CFBundleDisplayName: NL Lens
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        ITSAppUsesNonExemptEncryption: false
+        # Optional build-time fallback; the app prefers the keychain value.
+        NEBIUS_API_KEY: $(NEBIUS_API_KEY)
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nllens.app
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ENABLE_USER_SCRIPT_SANDBOXING: YES
+        SWIFT_EMIT_LOC_STRINGS: YES
+        # No App Group entitlement on purpose: an unprovisioned entitlement is
+        # the most common reason a personal build fails to sign, and the cache
+        # falls back to Application Support without one. See the README if you
+        # later add an extension that needs shared storage.
+    configFiles:
+      Debug: Secrets.xcconfig
+      Release: Secrets.xcconfig

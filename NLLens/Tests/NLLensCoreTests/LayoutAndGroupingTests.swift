@@ -145,3 +145,47 @@ final class BlockGroupingTests: XCTestCase {
         XCTAssertTrue(BlockGrouping.group([]).isEmpty)
     }
 }
+
+final class BoundingBoxTests: XCTestCase {
+
+    func testVisionRectIsFlippedToTopLeftOrigin() {
+        // A box at the BOTTOM in Vision coordinates (low y) must land at the
+        // BOTTOM in top-left coordinates (high y).
+        let bottom = BoundingBox.fromVisionNormalized(x: 0.1, y: 0.05, width: 0.3, height: 0.1)
+        XCTAssertEqual(bottom.y, 0.85, accuracy: 0.0001)
+
+        // A box at the TOP in Vision coordinates (high y) lands near y = 0.
+        let top = BoundingBox.fromVisionNormalized(x: 0.1, y: 0.85, width: 0.3, height: 0.1)
+        XCTAssertEqual(top.y, 0.05, accuracy: 0.0001)
+    }
+
+    func testFlipPreservesWidthHeightAndX() {
+        let box = BoundingBox.fromVisionNormalized(x: 0.2, y: 0.3, width: 0.4, height: 0.05)
+        XCTAssertEqual(box.x, 0.2, accuracy: 0.0001)
+        XCTAssertEqual(box.width, 0.4, accuracy: 0.0001)
+        XCTAssertEqual(box.height, 0.05, accuracy: 0.0001)
+    }
+
+    func testFlipIsItsOwnInverse() {
+        let original = BoundingBox.fromVisionNormalized(x: 0.1, y: 0.25, width: 0.5, height: 0.2)
+        let roundTrip = BoundingBox.fromVisionNormalized(
+            x: original.x, y: original.y, width: original.width, height: original.height
+        )
+        XCTAssertEqual(roundTrip.y, 0.25, accuracy: 0.0001)
+    }
+
+    func testFullHeightBoxStartsAtZero() {
+        let box = BoundingBox.fromVisionNormalized(x: 0, y: 0, width: 1, height: 1)
+        XCTAssertEqual(box.y, 0, accuracy: 0.0001)
+    }
+
+    func testUnionCoversBothBoxes() {
+        let a = BoundingBox(x: 0.1, y: 0.1, width: 0.2, height: 0.1)
+        let b = BoundingBox(x: 0.15, y: 0.3, width: 0.3, height: 0.1)
+        let union = a.union(b)
+        XCTAssertEqual(union.x, 0.1, accuracy: 0.0001)
+        XCTAssertEqual(union.y, 0.1, accuracy: 0.0001)
+        XCTAssertEqual(union.maxX, 0.45, accuracy: 0.0001)
+        XCTAssertEqual(union.maxY, 0.4, accuracy: 0.0001)
+    }
+}

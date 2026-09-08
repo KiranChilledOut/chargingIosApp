@@ -35,6 +35,19 @@ public struct BoundingBox: Codable, Hashable, Sendable {
     public func verticalGap(to other: BoundingBox) -> Double {
         other.y - maxY
     }
+
+    /// Builds a box from Vision's normalized, **bottom-left origin** rect.
+    ///
+    /// Vision measures y upward from the bottom; everything else here measures
+    /// it downward from the top. Getting this backwards mirrors every label
+    /// down the screen, which reads as a layout bug rather than a coordinate
+    /// one — so the conversion lives here, with tests, instead of inline at
+    /// the call site.
+    public static func fromVisionNormalized(
+        x: Double, y: Double, width: Double, height: Double
+    ) -> BoundingBox {
+        BoundingBox(x: x, y: 1.0 - (y + height), width: width, height: height)
+    }
 }
 
 /// One run of text recognized on screen, before translation.

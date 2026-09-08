@@ -1,6 +1,6 @@
 import Foundation
 
-public struct CacheEntry: Codable, Sendable, Equatable {
+public struct CacheEntry: Codable, Sendable, Equatable, Identifiable {
     /// Stable hash of the normalized source text.
     public var k: String
     /// Repaired Dutch.
@@ -11,6 +11,8 @@ public struct CacheEntry: Codable, Sendable, Equatable {
     public var t: Double
     /// A correction the user made by hand. Never overwritten by a model result.
     public var pinned: Bool
+
+    public var id: String { k }
 
     public init(k: String, nl: String, en: String, t: Double = Date().timeIntervalSince1970, pinned: Bool = false) {
         self.k = k
