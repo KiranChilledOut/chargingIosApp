@@ -23,14 +23,36 @@ struct ReviewView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if isLoading {
-                    ProgressView()
-                } else if let snapshot {
-                    content(for: snapshot)
-                } else {
-                    EmptyStateView()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    // Above the fold in every state: the first run is the most
+                    // likely moment for a bad key or model id, and burying the
+                    // reason under the empty state makes it look like nothing
+                    // happened at all.
+                    if let errorMessage {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle")
+                            .font(.callout)
+                            .foregroundStyle(.orange)
+                    }
+
+                    if !offlineBlocks.isEmpty {
+                        GroupBox("Cloud is off") {
+                            OnDeviceTranslationView(blocks: offlineBlocks) { translated in
+                                Task { await storeOfflineResult(translated) }
+                            }
+                        }
+                    }
+
+                    if isLoading {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                    } else if let snapshot {
+                        content(for: snapshot)
+                    } else {
+                        EmptyStateView()
+                    }
                 }
+                .padding()
             }
             .navigationTitle("Last Screen")
             .toolbar {
@@ -75,59 +97,42 @@ struct ReviewView: View {
 
     @ViewBuilder
     private func content(for snapshot: LastResultStore.Snapshot) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                if let errorMessage {
-                    Label(errorMessage, systemImage: "exclamationmark.triangle")
-                        .font(.callout)
-                        .foregroundStyle(.orange)
-                }
+        VStack(alignment: .leading, spacing: 16) {
+            if let image = showingOriginal
+                ? snapshot.originalImage : snapshot.renderedImage {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .strokeBorder(.quaternary)
+                    )
+            }
 
-                if !offlineBlocks.isEmpty, #available(iOS 18.0, *) {
-                    GroupBox("Cloud is off") {
-                        OnDeviceTranslationView(blocks: offlineBlocks) { translated in
-                            Task { await storeOfflineResult(translated) }
+            Text(showingOriginal ? "Original" : "Translated")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            let changed = snapshot.pairs.filter { $0.translatedText != $0.sourceText }
+            if !changed.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Tap any line to correct it")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.bottom, 6)
+
+                    ForEach(changed) { block in
+                        Button {
+                            editing = block
+                        } label: {
+                            PairRow(block: block)
                         }
-                    }
-                }
-
-                if let image = showingOriginal
-                    ? snapshot.originalImage : snapshot.renderedImage {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .strokeBorder(.quaternary)
-                        )
-                }
-
-                Text(showingOriginal ? "Original" : "Translated")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                let changed = snapshot.pairs.filter { $0.translatedText != $0.sourceText }
-                if !changed.isEmpty {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text("Tap any line to correct it")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .padding(.bottom, 6)
-
-                        ForEach(changed) { block in
-                            Button {
-                                editing = block
-                            } label: {
-                                PairRow(block: block)
-                            }
-                            .buttonStyle(.plain)
-                            Divider()
-                        }
+                        .buttonStyle(.plain)
+                        Divider()
                     }
                 }
             }
-            .padding()
         }
     }
 
@@ -279,8 +284,7 @@ private struct CorrectionSheet: View {
 
 private struct EmptyStateView: View {
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 20) {
                 Label("No screen translated yet", systemImage: "text.viewfinder")
                     .font(.headline)
 
@@ -301,10 +305,8 @@ private struct EmptyStateView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
-            .padding()
         }
     }
-}
 
 private struct SetupStep: View {
     let number: Int
