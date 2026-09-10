@@ -88,6 +88,27 @@ the answer, and the cost is that the app comes forward.
 reading `.shared` from a `View` property initializer an isolation question.
 Its mutating methods carry the isolation instead.
 
+## Reading mode and stitching
+
+`OverlayViewerView` has two modes. Image mode draws the rendered overlay;
+reading mode (`ReadingModeView`) reflows the same blocks as text. Neither is
+the default everywhere — a screen of controls needs the overlay, a screen of
+prose needs text — so multi-capture documents open in reading mode and single
+captures in image mode.
+
+`ScreenStitching` joins captures taken while scrolling. Consecutive captures
+overlap because people scroll less than a full screen on purpose; it finds the
+longest run where the end of one matches the start of the next and drops the
+repeat. **Bounding boxes in a stitched document are not in one coordinate
+space** — each was normalized against its own capture — so a stitched document
+must never be handed to `OverlayRenderer`. `Snapshot.isMultiScreen` is the
+guard.
+
+`TypographyHints` recovers headings from box height relative to the document
+median, because the recognizer reports no font size and reading mode would
+otherwise flatten every long page into undifferentiated text. The ratios are
+relative on purpose: absolute heights vary with device and capture scale.
+
 ## Conventions
 
 - The API key lives in the keychain only. Never add a build setting, an

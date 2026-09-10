@@ -1,105 +1,128 @@
 import SwiftUI
+import UIKit
 import NLLensCore
 
-/// The translated screen at full size, edge to edge.
+/// The translated screen, either drawn over the original layout or reflowed
+/// as text.
 ///
-/// The rendered image has exactly the dimensions of the screen it came from,
-/// so drawn full-bleed on black it reads as the original screen with English
-/// on it, rather than as a picture of a screen. That is the closest this can
-/// get to an overlay: iOS will not let an app draw over another app, but it
-/// will let this app fill the display with a pixel-accurate copy.
+/// Two modes because the right answer depends on what was on screen. A screen
+/// of controls needs the overlay: knowing which label belongs to which button
+/// is the whole point, and text alone throws that away. A screen of prose
+/// needs reading mode: an image of text does not reflow, does not honour
+/// Dynamic Type, cannot be selected, and stops at the bottom of the capture.
+///
+/// Stitched multi-capture documents open in reading mode, because their boxes
+/// come from different captures and no longer share a coordinate space.
 struct OverlayViewerView: View {
+
+    enum Mode: Hashable { case image, reading }
 
     let snapshot: LastResultStore.Snapshot
     var onDismiss: () -> Void
+
+    @State private var mode: Mode
+    /// Local copy so a correction shows immediately, without a round trip.
+    @State private var blocks: [TranslatedBlock]
+    @State private var editing: TranslatedBlock?
+    @State private var showingOriginal = false
+    @State private var showingChrome = true
+    @State private var didCopy = false
 
     @State private var scale: CGFloat = 1
     @State private var committedScale: CGFloat = 1
     @State private var offset: CGSize = .zero
     @State private var committedOffset: CGSize = .zero
-    @State private var showingOriginal = false
-    @State private var showingChrome = true
+
+    private let settings = AppEnvironment.shared.settings
+
+    init(snapshot: LastResultStore.Snapshot, onDismiss: @escaping () -> Void) {
+        self.snapshot = snapshot
+        self.onDismiss = onDismiss
+        _mode = State(initialValue: snapshot.isMultiScreen ? .reading : .image)
+        _blocks = State(initialValue: snapshot.pairs)
+    }
 
     private var image: UIImage? {
         showingOriginal ? snapshot.originalImage : snapshot.renderedImage
     }
 
     private var isZoomed: Bool { scale > 1.01 }
+    private var canShowImage: Bool { snapshot.renderedImage != nil }
 
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            (mode == .image ? Color.black : Color(.systemBackground))
+                .ignoresSafeArea()
 
-            if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .scaleEffect(scale)
-                    .offset(offset)
-                    .ignoresSafeArea()
-                    .gesture(dragGesture)
-                    .simultaneousGesture(magnifyGesture)
-                    .onTapGesture(count: 2) { toggleZoom() }
-                    .onTapGesture { withAnimation { showingChrome.toggle() } }
-                    // Press and hold to check the Dutch underneath. Quicker
-                    // than a button when you only want a half-second glance.
-                    .onLongPressGesture(minimumDuration: 0.25, maximumDistance: 30) {
-                        // Long press completed; peeking is driven by `pressing`.
-                    } onPressingChanged: { pressing in
-                        showingOriginal = pressing
+            switch mode {
+            case .image:
+                imageLayer
+                if showingChrome { chrome.transition(.opacity) }
+            case .reading:
+                VStack(spacing: 0) {
+                    chromeBar
+                    ReadingModeView(
+                        blocks: blocks,
+                        showSource: settings.showSourceText
+                    ) { block in
+                        editing = block
                     }
-            } else {
-                ContentUnavailableView(
-                    "Nothing to show",
-                    systemImage: "photo",
-                    description: Text("The translated screen could not be loaded.")
-                )
-            }
-
-            if showingChrome {
-                chrome
+                }
             }
         }
-        .statusBarHidden()
+        .statusBarHidden(mode == .image)
         .animation(.easeInOut(duration: 0.15), value: showingOriginal)
+        .animation(.easeInOut(duration: 0.2), value: mode)
+        .sheet(item: $editing) { block in
+            CorrectionSheet(
+                sourceText: block.sourceText,
+                translatedText: block.translatedText
+            ) { corrected in
+                await applyCorrection(block, to: corrected)
+            }
+        }
+        .onAppear {
+            // The result has already arrived by the time this is on screen, so
+            // the confirmation is for a translation that is done, not starting.
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        }
+    }
+
+    // MARK: - Image mode
+
+    @ViewBuilder
+    private var imageLayer: some View {
+        if let image {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .scaleEffect(scale)
+                .offset(offset)
+                .ignoresSafeArea()
+                .gesture(dragGesture)
+                .simultaneousGesture(magnifyGesture)
+                .onTapGesture(count: 2) { toggleZoom() }
+                .onTapGesture { withAnimation { showingChrome.toggle() } }
+                .onLongPressGesture(minimumDuration: 0.25, maximumDistance: 30) {
+                    // Completion is unused; peeking is driven by `pressing`.
+                } onPressingChanged: { pressing in
+                    showingOriginal = pressing
+                }
+        } else {
+            ContentUnavailableView(
+                "No image",
+                systemImage: "photo",
+                description: Text("Switch to text to read this translation.")
+            )
+        }
     }
 
     // MARK: - Chrome
 
     private var chrome: some View {
         VStack {
-            HStack {
-                Button {
-                    onDismiss()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.headline)
-                        .padding(10)
-                        .background(.ultraThinMaterial, in: Circle())
-                }
-                .accessibilityLabel("Close")
-
-                Spacer()
-
-                if snapshot.originalImage != nil {
-                    Button {
-                        showingOriginal.toggle()
-                    } label: {
-                        Image(systemName: showingOriginal ? "eye.fill" : "eye")
-                            .font(.headline)
-                            .padding(10)
-                            .background(.ultraThinMaterial, in: Circle())
-                    }
-                    .accessibilityLabel(
-                        showingOriginal ? "Show translation" : "Show original"
-                    )
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-
+            chromeBar
             Spacer()
-
             Text(showingOriginal ? "Original" : "Hold anywhere to see the Dutch")
                 .font(.caption)
                 .foregroundStyle(.white.opacity(0.85))
@@ -108,7 +131,85 @@ struct OverlayViewerView: View {
                 .background(.ultraThinMaterial, in: Capsule())
                 .padding(.bottom, 24)
         }
-        .transition(.opacity)
+    }
+
+    private var chromeBar: some View {
+        HStack(spacing: 12) {
+            circleButton("xmark", label: "Close", action: onDismiss)
+
+            Spacer()
+
+            if didCopy {
+                Text("Copied")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .transition(.opacity)
+            }
+
+            if mode == .reading {
+                circleButton("doc.on.doc", label: "Copy all", action: copyAll)
+            } else if snapshot.originalImage != nil {
+                circleButton(
+                    showingOriginal ? "eye.fill" : "eye",
+                    label: showingOriginal ? "Show translation" : "Show original"
+                ) {
+                    showingOriginal.toggle()
+                }
+            }
+
+            if canShowImage {
+                circleButton(
+                    mode == .image ? "text.alignleft" : "photo",
+                    label: mode == .image ? "Read as text" : "Show the screen"
+                ) {
+                    mode = (mode == .image) ? .reading : .image
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    private func circleButton(
+        _ symbol: String,
+        label: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.headline)
+                .frame(width: 20, height: 20)
+                .padding(10)
+                .background(.ultraThinMaterial, in: Circle())
+        }
+        .accessibilityLabel(label)
+    }
+
+    // MARK: - Actions
+
+    private func copyAll() {
+        UIPasteboard.general.string = TypographyHints.plainText(
+            for: blocks, includingSource: settings.showSourceText
+        )
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        withAnimation { didCopy = true }
+
+        Task {
+            try? await Task.sleep(nanoseconds: 1_600_000_000)
+            withAnimation { didCopy = false }
+        }
+    }
+
+    private func applyCorrection(_ block: TranslatedBlock, to corrected: String) async {
+        await Corrections.pin(source: block.sourceText, to: corrected)
+        blocks = blocks.map {
+            $0.id == block.id
+                ? TranslatedBlock(
+                    id: $0.id, sourceText: $0.sourceText,
+                    translatedText: corrected, box: $0.box, fromCache: true
+                )
+                : $0
+        }
     }
 
     // MARK: - Gestures
@@ -133,7 +234,6 @@ struct OverlayViewerView: View {
                         height: committedOffset.height + value.translation.height
                     )
                 } else {
-                    // Not zoomed: follow the finger vertically as a dismiss hint.
                     offset = CGSize(width: 0, height: max(0, value.translation.height))
                 }
             }

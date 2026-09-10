@@ -18,25 +18,58 @@ final class OverlayPresenter: ObservableObject {
 
     static let shared = OverlayPresenter()
 
+    /// How far through a multi-capture run we are.
+    struct Progress: Equatable {
+        var completed: Int
+        var total: Int
+
+        var fraction: Double {
+            total > 0 ? Double(completed) / Double(total) : 0
+        }
+    }
+
     /// Non-nil while a translated screen is waiting to be shown full screen.
     @Published var pending: LastResultStore.Snapshot?
+
+    /// Non-nil while a batch is still being translated. The app is already in
+    /// the foreground by then — `openAppWhenRun` brings it forward before the
+    /// work starts — so without this it would sit on a blank tab for several
+    /// seconds looking broken.
+    @Published var progress: Progress?
 
     private init() {}
 
     @MainActor
     func present(_ snapshot: LastResultStore.Snapshot) {
+        progress = nil
         pending = snapshot
     }
 
     @MainActor
     func dismiss() {
         pending = nil
+        progress = nil
     }
 
-    /// Entry point for the intent, which is not already on the main actor.
+    /// True while either a result or a progress indicator should be on screen.
+    var isActive: Bool { pending != nil || progress != nil }
+
+    /// Entry points for the intent, which is not already on the main actor.
     static func presentFromBackground(_ snapshot: LastResultStore.Snapshot) {
         Task { @MainActor in
             shared.present(snapshot)
+        }
+    }
+
+    static func reportProgress(completed: Int, total: Int) {
+        Task { @MainActor in
+            shared.progress = Progress(completed: completed, total: total)
+        }
+    }
+
+    static func clearProgress() {
+        Task { @MainActor in
+            shared.progress = nil
         }
     }
 }

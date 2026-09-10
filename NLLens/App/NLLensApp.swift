@@ -42,13 +42,17 @@ struct RootView: View {
                 OverlayViewerView(snapshot: snapshot) {
                     presenter.dismiss()
                 }
+            } else if let progress = presenter.progress {
+                // Same cover, so progress swaps straight into the result
+                // rather than one sheet dismissing and another appearing.
+                TranslationProgressView(progress: progress)
             }
         }
     }
 
     private var isPresentingOverlay: Binding<Bool> {
         Binding(
-            get: { presenter.pending != nil },
+            get: { presenter.isActive },
             set: { presenting in
                 if !presenting { presenter.dismiss() }
             }

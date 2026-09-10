@@ -318,6 +318,15 @@ struct NLLensShortcuts: AppShortcutsProvider {
             systemImageName: "arrow.up.left.and.arrow.down.right"
         )
         AppShortcut(
+            intent: TranslateLongScreenIntent(),
+            phrases: [
+                "Translate long screen with \(.applicationName)",
+                "\(.applicationName) translate the whole page",
+            ],
+            shortTitle: "Translate Long Screen",
+            systemImageName: "text.line.first.and.arrowtriangle.forward"
+        )
+        AppShortcut(
             intent: ExplainScreenIntent(),
             phrases: [
                 "Explain screen with \(.applicationName)",

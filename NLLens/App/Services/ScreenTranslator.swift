@@ -15,6 +15,13 @@ public enum ScreenTranslator {
         public let outcome: TranslationOutcome
     }
 
+    public struct MultiResult {
+        public let firstOriginal: UIImage?
+        public let firstRendered: UIImage?
+        public let document: StitchedDocument
+        public let outcome: TranslationOutcome
+    }
+
     public enum Failure: Error, LocalizedError {
         case undecodableImage
         case noTextFound
@@ -47,6 +54,69 @@ public enum ScreenTranslator {
             original: image, rendered: rendered, outcome: outcome
         )
         return Result(original: image, rendered: rendered, outcome: outcome)
+    }
+
+    /// Recognizes and translates several captures taken while scrolling, and
+    /// joins them into one continuous document.
+    ///
+    /// Each capture is translated on its own rather than as one giant request:
+    /// the overlap between consecutive captures then arrives as cache hits, so
+    /// the lines a reader deliberately re-captured to avoid missing cost
+    /// nothing the second time.
+    public static func translateMany(
+        images: [UIImage],
+        environment: AppEnvironment = .shared,
+        onProgress: @Sendable (Int, Int) -> Void = { _, _ in }
+    ) async throws -> MultiResult {
+        guard !images.isEmpty else { throw Failure.noTextFound }
+
+        let pipeline = await environment.pipeline()
+        var screens: [[TranslatedBlock]] = []
+        var firstRendered: UIImage?
+        var firstOriginal: UIImage?
+        var totalRedacted = 0
+        var cacheHits = 0
+
+        for (index, image) in images.enumerated() {
+            onProgress(index, images.count)
+
+            guard let cgImage = image.cgImage else { continue }
+            let blocks = try VisionOCR.recognize(cgImage: cgImage)
+            guard !blocks.isEmpty else { continue }
+
+            let outcome = try await pipeline.translate(blocks: blocks)
+            screens.append(outcome.blocks)
+            totalRedacted += outcome.redactedCount
+            cacheHits += outcome.cacheHits
+
+            if firstRendered == nil {
+                firstRendered = OverlayRenderer.render(image: image, blocks: outcome.blocks)
+                firstOriginal = image
+            }
+        }
+        onProgress(images.count, images.count)
+
+        guard !screens.isEmpty else { throw Failure.noTextFound }
+        let document = ScreenStitching.merge(screens)
+
+        let outcome = TranslationOutcome(
+            blocks: document.blocks,
+            cacheHits: cacheHits,
+            redactedCount: totalRedacted
+        )
+        if let firstRendered, let firstOriginal {
+            LastResultStore.store(
+                original: firstOriginal, rendered: firstRendered,
+                outcome: outcome, screenCount: document.screenCount
+            )
+        }
+
+        return MultiResult(
+            firstOriginal: firstOriginal,
+            firstRendered: firstRendered,
+            document: document,
+            outcome: outcome
+        )
     }
 
     /// Recognizes only, for the on-device fallback path which translates in a

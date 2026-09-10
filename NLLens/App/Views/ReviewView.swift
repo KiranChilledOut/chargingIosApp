@@ -20,6 +20,7 @@ struct ReviewView: View {
     /// The picked image is held separately: on the offline path nothing has
     /// been stored yet, so `snapshot` still holds the *previous* screen.
     @State private var offlineImage: UIImage?
+    @State private var viewingFullScreen = false
 
     var body: some View {
         NavigationStack {
@@ -85,8 +86,19 @@ struct ReviewView: View {
                 guard let item else { return }
                 Task { await translatePicked(item) }
             }
+            .fullScreenCover(isPresented: $viewingFullScreen) {
+                if let snapshot {
+                    OverlayViewerView(snapshot: snapshot) {
+                        viewingFullScreen = false
+                        Task { await reload() }
+                    }
+                }
+            }
             .sheet(item: $editing) { block in
-                CorrectionSheet(block: block) { corrected in
+                CorrectionSheet(
+                    sourceText: block.sourceText,
+                    translatedText: block.translatedText
+                ) { corrected in
                     await applyCorrection(for: block, to: corrected)
                 }
             }
@@ -195,9 +207,7 @@ struct ReviewView: View {
     }
 
     private func applyCorrection(for block: TranslatedBlock, to corrected: String) async {
-        let cache = await AppEnvironment.shared.cache()
-        await cache.pin(nl: block.sourceText, en: corrected)
-        _ = try? await cache.flush()
+        await Corrections.pin(source: block.sourceText, to: corrected)
 
         // Reflect the fix immediately rather than waiting for the next run.
         if var current = snapshot {
@@ -233,52 +243,6 @@ private struct PairRow: View {
         }
         .contentShape(Rectangle())
         .padding(.vertical, 8)
-    }
-}
-
-private struct CorrectionSheet: View {
-    let block: TranslatedBlock
-    let onSave: (String) async -> Void
-
-    @Environment(\.dismiss) private var dismiss
-    @State private var text: String = ""
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Dutch") {
-                    Text(block.sourceText)
-                        .foregroundStyle(.secondary)
-                }
-                Section("English") {
-                    TextField("Translation", text: $text, axis: .vertical)
-                        .lineLimit(1...6)
-                }
-                Section {
-                    Text("Saved corrections always win over the model, and are served instantly and offline from then on.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .navigationTitle("Correct")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !value.isEmpty else { return dismiss() }
-                        Task {
-                            await onSave(value)
-                            dismiss()
-                        }
-                    }
-                }
-            }
-            .onAppear { text = block.translatedText }
-        }
     }
 }
 

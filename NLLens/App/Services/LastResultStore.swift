@@ -14,11 +14,19 @@ public enum LastResultStore {
         public var originalImage: UIImage?
         public var pairs: [TranslatedBlock]
         public var createdAt: Date
+        /// How many captures were stitched together. Above one, the boxes no
+        /// longer share a coordinate space, so the result is for reading
+        /// rather than for drawing an overlay.
+        public var screenCount: Int = 1
+
+        public var isMultiScreen: Bool { screenCount > 1 }
     }
 
     private struct Persisted: Codable {
         var pairs: [TranslatedBlock]
         var createdAt: Date
+        /// Optional so snapshots written by an earlier build still decode.
+        var screenCount: Int?
     }
 
     private static var directory: URL {
@@ -33,7 +41,8 @@ public enum LastResultStore {
     public static func store(
         original: UIImage,
         rendered: UIImage,
-        outcome: TranslationOutcome
+        outcome: TranslationOutcome,
+        screenCount: Int = 1
     ) {
         do {
             try FileManager.default.createDirectory(
@@ -45,7 +54,9 @@ public enum LastResultStore {
             if let data = original.jpegData(compressionQuality: 0.7) {
                 try data.write(to: originalURL, options: .atomic)
             }
-            let payload = Persisted(pairs: outcome.blocks, createdAt: Date())
+            let payload = Persisted(
+                pairs: outcome.blocks, createdAt: Date(), screenCount: screenCount
+            )
             try JSONEncoder().encode(payload).write(to: metadataURL, options: .atomic)
         } catch {
             // Losing the snapshot costs the in-app review view, not the
@@ -63,7 +74,8 @@ public enum LastResultStore {
             renderedImage: (try? Data(contentsOf: renderedURL)).flatMap(UIImage.init(data:)),
             originalImage: (try? Data(contentsOf: originalURL)).flatMap(UIImage.init(data:)),
             pairs: payload.pairs,
-            createdAt: payload.createdAt
+            createdAt: payload.createdAt,
+            screenCount: payload.screenCount ?? 1
         )
     }
 

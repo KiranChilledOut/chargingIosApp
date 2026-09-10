@@ -156,13 +156,21 @@ swift test
 
    | Action | What you get | Best for |
    |---|---|---|
-   | **Translate Screen Full Size** | NL Lens opens and draws the translated screen edge to edge. Swipe down or press Close to go back. | Dense screens, long text, forms — anything you actually need to read |
+   | **Translate Screen Full Size** | NL Lens opens and draws the translated screen edge to edge. | Most things — dense screens, forms, anything you need to read |
+   | **Translate Long Screen** | Several captures joined into one continuous English document. | Articles, terms, emails — anything longer than a screen |
    | **Translate Screen** | A floating card over the Dutch app; you never leave it. | A quick look at one label |
 
    The card cannot be made full screen: a Shortcuts snippet is a system-sized
    sheet. Full size means the app comes forward, which is the trade. Since the
    rendered image has exactly the dimensions of the screen it came from, drawn
    full-bleed it reads as your screen with English on it.
+
+   **For long screens**, build the shortcut as: **Get Latest Screenshots**
+   (count: however many you took) → **Reverse** (so they run oldest first) →
+   **Translate Long Screen**. Scroll through the Dutch content taking
+   screenshots as you go — overlapping deliberately so you miss nothing — then
+   run it once. Repeated lines in the overlap are detected and merged, and
+   cost nothing to translate twice because the cache already has them.
 
    The screenshot has to come from the Shortcuts action rather than from the
    app, because no app can capture another app's screen — Shortcuts holds that
@@ -182,6 +190,18 @@ swift test
 
 In the full-size viewer: **hold anywhere** to peek at the original Dutch,
 pinch or double-tap to zoom, swipe down to dismiss.
+
+It has two modes, and the button top-right switches between them:
+
+- **Screen** — English drawn over the original layout. Right when which label
+  belongs to which button is the point.
+- **Text** — the same translation reflowed as real text: selectable, honours
+  Dynamic Type, scrolls past the bottom of the capture, and copies out whole.
+  Right for prose. Headings are recovered from how tall each line was on
+  screen, so a long page keeps its structure instead of becoming a wall.
+
+Stitched long-screen documents open in Text mode, because their layout comes
+from several different captures.
 
 **Corrections are the feature worth knowing about.** Tap a wrong translation,
 fix it, and it is *pinned*: it outranks the model from then on, is served
