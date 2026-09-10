@@ -10,11 +10,14 @@
 		0EFCE02D9F17613C43C2DA78 /* VisionOCR.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4D718D769DAE7D6EBE3F4A7 /* VisionOCR.swift */; };
 		1BF989DC88227BB68EEA193C /* OnDeviceTranslation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43F7F05BD7B4795EAF45EC68 /* OnDeviceTranslation.swift */; };
 		1DEBE80872464FA9B833E165 /* ReviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFED513EA6383F5BEA5BEE5B /* ReviewView.swift */; };
+		1F99E5660F91E8D1CDBFD7B2 /* TranslateFullScreenIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4EA5A031B2BACB57821B5DA /* TranslateFullScreenIntent.swift */; };
 		206C518F7117695A764F2C59 /* LastResultStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7581248A97E492E07C4D2D36 /* LastResultStore.swift */; };
+		26CB770F4D34ABD52A9D11E0 /* OverlayViewerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D96CBB32E0741D11B43EA349 /* OverlayViewerView.swift */; };
 		34327DC34A1DEA826404D212 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF557B1E9E9B58E72CF6062C /* SettingsView.swift */; };
 		48690E91DB7854E09AF5BF02 /* SnippetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 108F7D9B13316300B0A8D625 /* SnippetViews.swift */; };
 		4FDAA0F66DDE1AE869FAFEB5 /* OverlayRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90EB814F3736DAFCB3C19E04 /* OverlayRenderer.swift */; };
 		6A93E9BBF12836284986DA0E /* GlossaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BEC8D76E1A136AA6A690868 /* GlossaryView.swift */; };
+		840A2D85B4A56B52EE23CD8E /* OverlayPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4DE0A27576080C24580BD33 /* OverlayPresenter.swift */; };
 		915B6DD5FC77C90682F9B208 /* ComposeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4A64FDA227F9D494B7CA388 /* ComposeView.swift */; };
 		B953022436A896CB7FCEC088 /* NLLensApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5030CF5D8B816963DF3BAFA /* NLLensApp.swift */; };
 		C013A2055317E3CBBADC4E3A /* TranslateScreenshotIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5E7AE111F49D80E0C6CAF72 /* TranslateScreenshotIntent.swift */; };
@@ -38,8 +41,11 @@
 		B4A64FDA227F9D494B7CA388 /* ComposeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposeView.swift; sourceTree = "<group>"; };
 		BFED513EA6383F5BEA5BEE5B /* ReviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewView.swift; sourceTree = "<group>"; };
 		CF557B1E9E9B58E72CF6062C /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		D4DE0A27576080C24580BD33 /* OverlayPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayPresenter.swift; sourceTree = "<group>"; };
+		D96CBB32E0741D11B43EA349 /* OverlayViewerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayViewerView.swift; sourceTree = "<group>"; };
 		DC33E6729702C6AF9ECD6D28 /* NLLens.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = NLLens.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E4D718D769DAE7D6EBE3F4A7 /* VisionOCR.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisionOCR.swift; sourceTree = "<group>"; };
+		E4EA5A031B2BACB57821B5DA /* TranslateFullScreenIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranslateFullScreenIntent.swift; sourceTree = "<group>"; };
 		F5030CF5D8B816963DF3BAFA /* NLLensApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NLLensApp.swift; sourceTree = "<group>"; };
 		F5E7AE111F49D80E0C6CAF72 /* TranslateScreenshotIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranslateScreenshotIntent.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -84,6 +90,7 @@
 		46525A0E5EDD8E0D39DC56D8 /* Intents */ = {
 			isa = PBXGroup;
 			children = (
+				E4EA5A031B2BACB57821B5DA /* TranslateFullScreenIntent.swift */,
 				F5E7AE111F49D80E0C6CAF72 /* TranslateScreenshotIntent.swift */,
 			);
 			path = Intents;
@@ -114,6 +121,7 @@
 			children = (
 				B4A64FDA227F9D494B7CA388 /* ComposeView.swift */,
 				0BEC8D76E1A136AA6A690868 /* GlossaryView.swift */,
+				D96CBB32E0741D11B43EA349 /* OverlayViewerView.swift */,
 				BFED513EA6383F5BEA5BEE5B /* ReviewView.swift */,
 				CF557B1E9E9B58E72CF6062C /* SettingsView.swift */,
 				108F7D9B13316300B0A8D625 /* SnippetViews.swift */,
@@ -128,6 +136,7 @@
 				526F1C979A76C83431A453C8 /* Keychain.swift */,
 				7581248A97E492E07C4D2D36 /* LastResultStore.swift */,
 				43F7F05BD7B4795EAF45EC68 /* OnDeviceTranslation.swift */,
+				D4DE0A27576080C24580BD33 /* OverlayPresenter.swift */,
 				90EB814F3736DAFCB3C19E04 /* OverlayRenderer.swift */,
 				3644A952B8140718E08A9134 /* ScreenTranslator.swift */,
 				E4D718D769DAE7D6EBE3F4A7 /* VisionOCR.swift */,
@@ -202,11 +211,14 @@
 				206C518F7117695A764F2C59 /* LastResultStore.swift in Sources */,
 				B953022436A896CB7FCEC088 /* NLLensApp.swift in Sources */,
 				1BF989DC88227BB68EEA193C /* OnDeviceTranslation.swift in Sources */,
+				840A2D85B4A56B52EE23CD8E /* OverlayPresenter.swift in Sources */,
 				4FDAA0F66DDE1AE869FAFEB5 /* OverlayRenderer.swift in Sources */,
+				26CB770F4D34ABD52A9D11E0 /* OverlayViewerView.swift in Sources */,
 				1DEBE80872464FA9B833E165 /* ReviewView.swift in Sources */,
 				F293F8F89EE6B6AB657705E9 /* ScreenTranslator.swift in Sources */,
 				34327DC34A1DEA826404D212 /* SettingsView.swift in Sources */,
 				48690E91DB7854E09AF5BF02 /* SnippetViews.swift in Sources */,
+				1F99E5660F91E8D1CDBFD7B2 /* TranslateFullScreenIntent.swift in Sources */,
 				C013A2055317E3CBBADC4E3A /* TranslateScreenshotIntent.swift in Sources */,
 				0EFCE02D9F17613C43C2DA78 /* VisionOCR.swift in Sources */,
 			);

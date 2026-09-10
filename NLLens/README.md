@@ -152,7 +152,17 @@ swift test
    whole pipeline is good. Doing it in this order tells you whether a failure
    is your key, your model choice, or the app.
 4. Create the shortcut: Shortcuts → new shortcut → **Take Screenshot** →
-   **Translate Screen** (from NL Lens), passing the screenshot in.
+   then one of two NL Lens actions, passing the screenshot in:
+
+   | Action | What you get | Best for |
+   |---|---|---|
+   | **Translate Screen Full Size** | NL Lens opens and draws the translated screen edge to edge. Swipe down or press Close to go back. | Dense screens, long text, forms — anything you actually need to read |
+   | **Translate Screen** | A floating card over the Dutch app; you never leave it. | A quick look at one label |
+
+   The card cannot be made full screen: a Shortcuts snippet is a system-sized
+   sheet. Full size means the app comes forward, which is the trade. Since the
+   rendered image has exactly the dimensions of the screen it came from, drawn
+   full-bleed it reads as your screen with English on it.
 
    The screenshot has to come from the Shortcuts action rather than from the
    app, because no app can capture another app's screen — Shortcuts holds that
@@ -165,10 +175,13 @@ swift test
 
 | Tab | What it's for |
 |---|---|
-| **Screen** | The last translated screen at full size. Tap any line to correct it. |
+| **Screen** | The last translated screen, with every line correctable. |
 | **Write** | English → Dutch with a tone control (`u` vs `je`), copied ready to paste. |
 | **Glossary** | Everything learned so far, searchable and editable. |
 | **Settings** | Key, models, privacy switches. |
+
+In the full-size viewer: **hold anywhere** to peek at the original Dutch,
+pinch or double-tap to zoom, swipe down to dismiss.
 
 **Corrections are the feature worth knowing about.** Tap a wrong translation,
 fix it, and it is *pinned*: it outranks the model from then on, is served

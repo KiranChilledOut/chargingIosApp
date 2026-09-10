@@ -72,6 +72,22 @@ each has a test pinning it:
   every branch of `perform()` must return the *same* concrete type. Splitting
   it back into separate views will not compile.
 
+## Two presentation modes
+
+`TranslateScreenshotIntent` (`openAppWhenRun = false`) returns a Shortcuts
+snippet and never leaves the Dutch app. `TranslateFullScreenIntent`
+(`openAppWhenRun = true`) brings the app forward and hands the result to
+`OverlayViewerView` via `OverlayPresenter`.
+
+Both exist because a snippet **cannot** be made full screen — it is a
+system-sized sheet, and capping or uncapping its contents does not change
+that. Do not try to "fix" the card by making it bigger; the full-size path is
+the answer, and the cost is that the app comes forward.
+
+`OverlayPresenter` is deliberately not a `@MainActor` type — that would make
+reading `.shared` from a `View` property initializer an isolation question.
+Its mutating methods carry the isolation instead.
+
 ## Conventions
 
 - The API key lives in the keychain only. Never add a build setting, an

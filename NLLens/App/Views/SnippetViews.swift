@@ -49,39 +49,17 @@ private struct TranslationBody: View {
     let image: UIImage
     let outcome: TranslationOutcome
 
-    private var changed: [TranslatedBlock] {
-        Array(
-            outcome.blocks
-                .filter { $0.translatedText != $0.sourceText }
-                .prefix(6)
-        )
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
+            // No height cap: a snippet is already a system-sized card, and
+            // capping it again only shrinks the one thing worth reading. The
+            // per-line Dutch/English list used to sit below this and cost the
+            // image half the card — it lives in the app's Screen tab instead,
+            // where there is room for it.
             Image(uiImage: image)
                 .resizable()
                 .scaledToFit()
-                .frame(maxHeight: 260)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
-
-            if !changed.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(changed) { block in
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            Text(block.sourceText)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                            Image(systemName: "arrow.right")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                            Text(block.translatedText)
-                                .lineLimit(1)
-                        }
-                        .font(.callout)
-                    }
-                }
-            }
 
             StatusFooter(outcome: outcome)
         }

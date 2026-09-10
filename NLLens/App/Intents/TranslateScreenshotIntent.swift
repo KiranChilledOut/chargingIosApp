@@ -309,6 +309,15 @@ struct NLLensShortcuts: AppShortcutsProvider {
             systemImageName: "textformat.abc.dottedunderline"
         )
         AppShortcut(
+            intent: TranslateFullScreenIntent(),
+            phrases: [
+                "Translate screen full size with \(.applicationName)",
+                "\(.applicationName) full screen translate",
+            ],
+            shortTitle: "Translate Full Size",
+            systemImageName: "arrow.up.left.and.arrow.down.right"
+        )
+        AppShortcut(
             intent: ExplainScreenIntent(),
             phrases: [
                 "Explain screen with \(.applicationName)",

@@ -11,6 +11,7 @@ struct NLLensApp: App {
 
 struct RootView: View {
     @State private var selection = Tab.screen
+    @StateObject private var presenter = OverlayPresenter.shared
 
     enum Tab: Hashable {
         case screen, write, glossary, settings
@@ -34,5 +35,23 @@ struct RootView: View {
                 .tabItem { Label("Settings", systemImage: "gearshape") }
                 .tag(Tab.settings)
         }
+        // Presented when the full-size intent hands over a freshly translated
+        // screen. Sits on the TabView so it covers whichever tab is showing.
+        .fullScreenCover(isPresented: isPresentingOverlay) {
+            if let snapshot = presenter.pending {
+                OverlayViewerView(snapshot: snapshot) {
+                    presenter.dismiss()
+                }
+            }
+        }
+    }
+
+    private var isPresentingOverlay: Binding<Bool> {
+        Binding(
+            get: { presenter.pending != nil },
+            set: { presenting in
+                if !presenting { presenter.dismiss() }
+            }
+        )
     }
 }
