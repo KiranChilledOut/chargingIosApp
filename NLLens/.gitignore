@@ -1,6 +1,11 @@
 .build/
 .swiftpm/
 DerivedData/
-*.xcodeproj/
-*.xcworkspace/
-Secrets.xcconfig
+
+# Per-user Xcode state, never shared.
+xcuserdata/
+*.xcuserstate
+
+# Standalone workspaces only. The project.xcworkspace *inside* NLLens.xcodeproj
+# must be committed — without it Xcode cannot resolve the local Swift package.
+/*.xcworkspace/

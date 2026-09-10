@@ -32,8 +32,9 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         ITSAppUsesNonExemptEncryption: false
-        # Optional build-time fallback; the app prefers the keychain value.
-        NEBIUS_API_KEY: $(NEBIUS_API_KEY)
+    scheme:
+      testTargets: []
+      gatherCoverageData: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nllens.app
@@ -47,6 +48,3 @@ targets:
         # the most common reason a personal build fails to sign, and the cache
         # falls back to Application Support without one. See the README if you
         # later add an extension that needs shared storage.
-    configFiles:
-      Debug: Secrets.xcconfig
-      Release: Secrets.xcconfig

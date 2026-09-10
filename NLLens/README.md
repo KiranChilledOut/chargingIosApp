@@ -83,21 +83,43 @@ exactly the screens you would not paste into a third-party API. So:
   unusable for something you rely on daily. The paid account gives 1-year
   signing plus internal TestFlight.
 
-## Build
+## Install on your iPhone
+
+`NLLens.xcodeproj` is committed, so there is nothing to generate and no
+Homebrew needed.
 
 ```bash
-brew install xcodegen        # once
-cd NLLens
-make project                 # generates NLLens.xcodeproj
-open NLLens.xcodeproj
+git clone https://github.com/KiranChilledOut/chargingIosApp.git
+cd chargingIosApp
+git checkout claude/ios-translation-overlay-dzyv4v
+open NLLens/NLLens.xcodeproj
 ```
 
-Then in Xcode: select your team under **Signing & Capabilities**, change the
-bundle identifier to something unique to you, and run on your device.
+In Xcode, select the **NLLens** target → **Signing & Capabilities**:
+
+1. Tick **Automatically manage signing**.
+2. **Team** → your Personal Team. Not listed? Xcode → Settings → Accounts → **+**.
+3. **Change the bundle identifier.** `com.nllens.app` is taken; it must be
+   globally unique. Something like `com.yourname.nllens`.
+
+Plug the iPhone in, pick it as the run destination, press **⌘R**.
+
+First launch refuses with "Untrusted Developer". On the phone: **Settings →
+General → VPN & Device Management → [your Apple ID] → Trust**, then launch
+again.
+
+A **free Apple ID** is enough for testing, with two limits: the signature
+expires after **7 days** (plug in, ⌘R again to renew — the app stays installed
+but won't open until you do), and you can have three sideloaded apps at once.
+The $99/yr account removes both and is worth it once you find you use this
+daily.
 
 No App Group entitlement is declared, on purpose — an unprovisioned entitlement
 is the most common reason a personal build fails to sign, and the cache falls
 back to Application Support without one.
+
+If you edit `project.yml` or add files, regenerate with
+`brew install xcodegen && make project`.
 
 Run the core test suite (no Xcode needed, works on Linux too):
 
@@ -108,7 +130,7 @@ swift test
 ## Set up
 
 1. Open the app, go to **Settings**, paste your Nebius key. It goes to the
-   keychain.
+   keychain, which survives both app updates and the weekly re-signing.
 2. Tap **Load models from Nebius** and pick a current text model and a
    vision-capable model. Do this rather than trusting the defaults — the
    catalog changes, and a retired model id fails every request. From a

@@ -3,11 +3,10 @@
 
 .PHONY: project test clean open smoke
 
-project: Secrets.xcconfig
+# The generated project is committed, so this is only needed after editing
+# project.yml or adding files.
+project:
 	xcodegen generate
-
-Secrets.xcconfig:
-	cp Secrets.example.xcconfig Secrets.xcconfig
 
 test:
 	swift test

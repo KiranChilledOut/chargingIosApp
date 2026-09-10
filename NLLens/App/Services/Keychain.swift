@@ -5,8 +5,9 @@ import Security
 ///
 /// The key is not in `UserDefaults` because App Group defaults are a plain
 /// plist inside the container, readable by anything that can reach the
-/// filesystem. It is not in the source either — see `Secrets.xcconfig` in the
-/// README.
+/// filesystem, and not in a build setting because that would put it in a file
+/// in the repo. It is typed into Settings once and survives the weekly
+/// re-signing a free developer account requires.
 public enum Keychain {
 
     private static let service = "com.nllens.nebius"
@@ -61,15 +62,12 @@ public enum Keychain {
         SecItemDelete(query as CFDictionary)
     }
 
-    /// Falls back to a build setting so a fresh install can work before the
-    /// key has been typed into Settings.
+    /// The key, or an empty string when none has been set.
+    ///
+    /// Deliberately keychain-only: a build-setting fallback would mean the key
+    /// lives in a file in the repo, and the keychain survives the weekly
+    /// re-signing a free developer account requires.
     public static func resolvedAPIKey() -> String {
-        if let stored = apiKey() { return stored }
-        if let fromBuild = Bundle.main.object(forInfoDictionaryKey: "NEBIUS_API_KEY") as? String,
-           !fromBuild.isEmpty,
-           fromBuild != "$(NEBIUS_API_KEY)" {
-            return fromBuild
-        }
-        return ""
+        apiKey() ?? ""
     }
 }
