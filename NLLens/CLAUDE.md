@@ -109,6 +109,38 @@ median, because the recognizer reports no font size and reading mode would
 otherwise flatten every long page into undifferentiated text. The ratios are
 relative on purpose: absolute heights vary with device and capture scale.
 
+## Capture paths
+
+Three ways in, deliberately:
+
+- **Share sheet** — `CFBundleDocumentTypes` declares the app an image viewer,
+  so it appears in the share sheet; `IncomingImageCoordinator` handles the
+  `onOpenURL`. Zero setup, which makes it the right first experience. It is
+  **not** a share extension on purpose: an extension needs an App Group, and
+  App Groups need a paid developer account.
+- **Back Tap → Shortcuts → App Intent** — fastest, but needs configuring.
+- **In-app Photos picker** — for testing and for screenshots already taken.
+
+Multiple shared images are coalesced over a 400 ms window before processing.
+Without that, three shared screenshots start three translations that each
+overwrite the last, instead of one stitched document.
+
+Both foregrounding intents raise a progress indicator *before* doing any work.
+`openAppWhenRun` brings the app forward first, so without it the app shows a
+blank tab for the seconds the translation takes — which reads as a Back Tap
+that never registered, and gets tapped again. Every early return in those
+intents must clear it.
+
+## Explanations decode leniently
+
+`ScreenExplanation` has a hand-written `init(from:)` because vision models
+drift from the requested schema far more than text models do: a lone action
+arrives as a bare string, lists arrive as objects with a `text` key, empty
+sections are omitted rather than sent as `[]`. Synthesized decoding throws on
+all of those and the user sees an error for a usable reply. `encode(to:)` is
+explicit because the alternate-spelling `CodingKeys` cases stop Swift
+synthesizing one.
+
 ## Conventions
 
 - The API key lives in the keychain only. Never add a build setting, an

@@ -32,6 +32,16 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         ITSAppUsesNonExemptEncryption: false
+        # Declaring the app an image viewer puts it in the share sheet, so a
+        # screenshot can be sent here with no Shortcuts recipe and no Back Tap
+        # setup. A share *extension* would be slicker but needs an App Group,
+        # and App Groups need a paid developer account.
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Screenshot
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.image
     scheme:
       testTargets: []
       gatherCoverageData: false

@@ -37,11 +37,16 @@ final class OverlayPresenter: ObservableObject {
     /// seconds looking broken.
     @Published var progress: Progress?
 
+    /// Set when a share-sheet translation failed. The intent paths report
+    /// errors through their dialog; this one has no dialog to speak through.
+    @Published var failure: String?
+
     private init() {}
 
     @MainActor
     func present(_ snapshot: LastResultStore.Snapshot) {
         progress = nil
+        failure = nil
         pending = snapshot
     }
 
@@ -49,10 +54,11 @@ final class OverlayPresenter: ObservableObject {
     func dismiss() {
         pending = nil
         progress = nil
+        failure = nil
     }
 
-    /// True while either a result or a progress indicator should be on screen.
-    var isActive: Bool { pending != nil || progress != nil }
+    /// True while a result, a progress indicator, or an error should be shown.
+    var isActive: Bool { pending != nil || progress != nil || failure != nil }
 
     /// Entry points for the intent, which is not already on the main actor.
     static func presentFromBackground(_ snapshot: LastResultStore.Snapshot) {

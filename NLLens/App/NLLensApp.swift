@@ -46,7 +46,16 @@ struct RootView: View {
                 // Same cover, so progress swaps straight into the result
                 // rather than one sheet dismissing and another appearing.
                 TranslationProgressView(progress: progress)
+            } else if let failure = presenter.failure {
+                TranslationFailureView(message: failure) {
+                    presenter.dismiss()
+                }
             }
+        }
+        // Screenshots shared into the app from the system share sheet. This is
+        // the path that needs no setup at all.
+        .onOpenURL { url in
+            IncomingImageCoordinator.shared.handle(url: url)
         }
     }
 

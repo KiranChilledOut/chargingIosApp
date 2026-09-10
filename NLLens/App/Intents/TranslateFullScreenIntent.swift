@@ -30,10 +30,18 @@ struct TranslateFullScreenIntent: AppIntent {
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let environment = AppEnvironment.shared
 
+        // Before any work: `openAppWhenRun` has already brought the app
+        // forward, so without this it shows a blank tab for the two or three
+        // seconds the translation takes — which reads as a Back Tap that
+        // didn't register, and gets tapped again.
+        OverlayPresenter.reportProgress(completed: 0, total: 1)
+
         guard environment.hasAPIKey || !environment.settings.cloudEnabled else {
+            OverlayPresenter.clearProgress()
             return .result(dialog: "No Nebius API key set. Add one in Settings.")
         }
         guard let image = IntentImageLoader.image(from: screenshot) else {
+            OverlayPresenter.clearProgress()
             return .result(dialog: "Could not read that screenshot.")
         }
 
@@ -53,12 +61,16 @@ struct TranslateFullScreenIntent: AppIntent {
                 )
             )
         } catch ScreenTranslator.Failure.noTextFound {
+            OverlayPresenter.clearProgress()
             return .result(dialog: "No text found on that screen.")
         } catch PipelineError.cloudDisabled {
+            OverlayPresenter.clearProgress()
             return .result(dialog: "Cloud translation is off. Turn it on in Settings.")
         } catch let error as NebiusError {
+            OverlayPresenter.clearProgress()
             return .result(dialog: IntentDialog(stringLiteral: error.userMessage))
         } catch {
+            OverlayPresenter.clearProgress()
             return .result(dialog: "Translation failed.")
         }
     }

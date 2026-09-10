@@ -151,8 +151,16 @@ swift test
    Dutch screenshot from Photos. If that produces a translated overlay, the
    whole pipeline is good. Doing it in this order tells you whether a failure
    is your key, your model choice, or the app.
-4. Create the shortcut: Shortcuts → new shortcut → **Take Screenshot** →
-   then one of two NL Lens actions, passing the screenshot in:
+4. **The zero-setup way — try this first.** Take a screenshot, tap the
+   thumbnail, hit **Share**, choose **NL Lens**. That's it: no Shortcuts
+   recipe, no Back Tap, nothing to configure. Share several screenshots at
+   once and they're stitched into one document automatically.
+
+   Back Tap is faster once configured, and worth setting up if you use this
+   daily — but the share sheet works the moment you install.
+
+5. For Back Tap: Shortcuts → new shortcut → **Take Screenshot** →
+   then one of these NL Lens actions, passing the screenshot in:
 
    | Action | What you get | Best for |
    |---|---|---|
@@ -175,9 +183,8 @@ swift test
    The screenshot has to come from the Shortcuts action rather than from the
    app, because no app can capture another app's screen — Shortcuts holds that
    privilege and NL Lens does not. That is why this one manual step exists.
-5. Settings → Accessibility → Touch → **Back Tap** → **Double Tap** → your
+6. Settings → Accessibility → Touch → **Back Tap** → **Double Tap** → your
    shortcut.
-6. Optional: repeat with **Explain Screen** on **Triple Tap**.
 
 ## Using it
 
@@ -191,7 +198,7 @@ swift test
 In the full-size viewer: **hold anywhere** to peek at the original Dutch,
 pinch or double-tap to zoom, swipe down to dismiss.
 
-It has two modes, and the button top-right switches between them:
+It has three modes, picked from the control top-right:
 
 - **Screen** — English drawn over the original layout. Right when which label
   belongs to which button is the point.
@@ -199,9 +206,16 @@ It has two modes, and the button top-right switches between them:
   Dynamic Type, scrolls past the bottom of the capture, and copies out whole.
   Right for prose. Headings are recovered from how tall each line was on
   screen, so a long page keeps its structure instead of becoming a wall.
+- **Explain** — what the screen is *asking*, rather than what it says. Which
+  field wants your BSN, which box is pre-ticked, what renews monthly, what the
+  deadline is. Warnings come before steps, because the point is to see the cost
+  before you start following the instructions that commit you to it.
 
 Stitched long-screen documents open in Text mode, because their layout comes
 from several different captures.
+
+Explain is the thing a free translator can't do, and it costs a vision call, so
+it only runs when you actually open that tab.
 
 **Corrections are the feature worth knowing about.** Tap a wrong translation,
 fix it, and it is *pinned*: it outranks the model from then on, is served

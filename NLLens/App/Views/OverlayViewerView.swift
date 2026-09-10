@@ -15,7 +15,25 @@ import NLLensCore
 /// come from different captures and no longer share a coordinate space.
 struct OverlayViewerView: View {
 
-    enum Mode: Hashable { case image, reading }
+    enum Mode: Hashable {
+        case image, reading, explain
+
+        var symbol: String {
+            switch self {
+            case .image: return "photo"
+            case .reading: return "text.alignleft"
+            case .explain: return "questionmark.bubble"
+            }
+        }
+
+        var label: String {
+            switch self {
+            case .image: return "Show the screen"
+            case .reading: return "Read as text"
+            case .explain: return "Explain this screen"
+            }
+        }
+    }
 
     let snapshot: LastResultStore.Snapshot
     var onDismiss: () -> Void
@@ -27,6 +45,9 @@ struct OverlayViewerView: View {
     @State private var showingOriginal = false
     @State private var showingChrome = true
     @State private var didCopy = false
+    @State private var explanation: ScreenExplanation?
+    @State private var isExplaining = false
+    @State private var explainError: String?
 
     @State private var scale: CGFloat = 1
     @State private var committedScale: CGFloat = 1
@@ -68,9 +89,24 @@ struct OverlayViewerView: View {
                         editing = block
                     }
                 }
+            case .explain:
+                VStack(spacing: 0) {
+                    chromeBar
+                    ExplanationView(
+                        explanation: explanation ?? ScreenExplanation(summary: ""),
+                        isLoading: isExplaining,
+                        errorMessage: explainError,
+                        onRetry: { Task { await explainScreen(force: true) } }
+                    )
+                }
             }
         }
         .statusBarHidden(mode == .image)
+        .task(id: mode) {
+            // Requested lazily: it costs a vision call, so it should only
+            // happen when the tab is actually opened.
+            if mode == .explain { await explainScreen() }
+        }
         .animation(.easeInOut(duration: 0.15), value: showingOriginal)
         .animation(.easeInOut(duration: 0.2), value: mode)
         .sheet(item: $editing) { block in
@@ -148,7 +184,7 @@ struct OverlayViewerView: View {
 
             if mode == .reading {
                 circleButton("doc.on.doc", label: "Copy all", action: copyAll)
-            } else if snapshot.originalImage != nil {
+            } else if mode == .image, snapshot.originalImage != nil {
                 circleButton(
                     showingOriginal ? "eye.fill" : "eye",
                     label: showingOriginal ? "Show translation" : "Show original"
@@ -157,17 +193,44 @@ struct OverlayViewerView: View {
                 }
             }
 
-            if canShowImage {
-                circleButton(
-                    mode == .image ? "text.alignleft" : "photo",
-                    label: mode == .image ? "Read as text" : "Show the screen"
-                ) {
-                    mode = (mode == .image) ? .reading : .image
-                }
-            }
+            modePicker
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    /// Three explicit modes rather than a cycling toggle: with more than two
+    /// destinations a toggle stops being guessable.
+    private var modePicker: some View {
+        HStack(spacing: 2) {
+            ForEach(availableModes, id: \.self) { candidate in
+                Button {
+                    mode = candidate
+                } label: {
+                    Image(systemName: candidate.symbol)
+                        .font(.subheadline)
+                        .frame(width: 32, height: 30)
+                        .background {
+                            if mode == candidate {
+                                Capsule().fill(.tint.opacity(0.25))
+                            }
+                        }
+                }
+                .accessibilityLabel(candidate.label)
+                .accessibilityAddTraits(mode == candidate ? .isSelected : [])
+            }
+        }
+        .padding(3)
+        .background(.ultraThinMaterial, in: Capsule())
+    }
+
+    private var availableModes: [Mode] {
+        var modes: [Mode] = []
+        if canShowImage { modes.append(.image) }
+        modes.append(.reading)
+        // Explaining needs the untranslated screen to send to a vision model.
+        if snapshot.originalImage != nil { modes.append(.explain) }
+        return modes
     }
 
     private func circleButton(
@@ -197,6 +260,37 @@ struct OverlayViewerView: View {
         Task {
             try? await Task.sleep(nanoseconds: 1_600_000_000)
             withAnimation { didCopy = false }
+        }
+    }
+
+    /// Asks a vision model what the screen is for. Cached for the life of the
+    /// viewer so switching tabs does not re-spend the call.
+    private func explainScreen(force: Bool = false) async {
+        guard force || (explanation == nil && !isExplaining) else { return }
+        guard let original = snapshot.originalImage,
+              let jpeg = original.jpegData(compressionQuality: 0.6) else {
+            explainError = "This screen could not be sent for explaining."
+            return
+        }
+
+        isExplaining = true
+        explainError = nil
+        defer { isExplaining = false }
+
+        do {
+            let environment = AppEnvironment.shared
+            let pipeline = await environment.pipeline()
+            explanation = try await pipeline.explain(
+                imageBase64: jpeg.base64EncodedString(),
+                mimeType: "image/jpeg",
+                visionModel: environment.visionModel
+            )
+        } catch PipelineError.cloudDisabled {
+            explainError = "Cloud is off. Explaining a screen needs the vision model."
+        } catch let error as NebiusError {
+            explainError = error.userMessage
+        } catch {
+            explainError = error.localizedDescription
         }
     }
 

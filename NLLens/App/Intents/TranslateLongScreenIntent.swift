@@ -32,7 +32,12 @@ struct TranslateLongScreenIntent: AppIntent {
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let environment = AppEnvironment.shared
 
+        // Raised before the images are even decoded, so the app never shows a
+        // blank tab after being brought forward.
+        OverlayPresenter.reportProgress(completed: 0, total: max(screenshots.count, 1))
+
         guard environment.hasAPIKey || !environment.settings.cloudEnabled else {
+            OverlayPresenter.clearProgress()
             return .result(dialog: "No Nebius API key set. Add one in Settings.")
         }
 

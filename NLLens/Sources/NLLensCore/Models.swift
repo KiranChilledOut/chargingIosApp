@@ -120,6 +120,85 @@ public struct ScreenExplanation: Codable, Hashable, Sendable {
         self.actions = actions
         self.warnings = warnings
     }
+
+    /// Decoded leniently, because a schema is a request rather than a
+    /// guarantee.
+    ///
+    /// Vision models drift from the shape they were asked for far more than
+    /// text models do — a lone action arrives as a bare string instead of a
+    /// one-element array, a list arrives as objects with a `text` key, an
+    /// empty section is omitted rather than sent as `[]`. Any of those would
+    /// throw under synthesized decoding, and the user would get an error for
+    /// a reply that was perfectly usable.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        summary = Self.firstString(
+            in: container, forKeys: [.summary, .title, .explanation]
+        ) ?? ""
+        actions = Self.stringList(in: container, forKey: .actions)
+        warnings = Self.stringList(in: container, forKey: .warnings)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case summary, actions, warnings
+        // Alternate spellings seen in the wild. Read on the way in, never
+        // written on the way out — which is why `encode(to:)` is explicit:
+        // their presence stops Swift synthesizing one.
+        case title, explanation
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(summary, forKey: .summary)
+        try container.encode(actions, forKey: .actions)
+        try container.encode(warnings, forKey: .warnings)
+    }
+
+    /// Reads a string that may have arrived as an array of strings.
+    private static func firstString(
+        in container: KeyedDecodingContainer<CodingKeys>,
+        forKeys keys: [CodingKeys]
+    ) -> String? {
+        for key in keys {
+            if let value = try? container.decode(String.self, forKey: key),
+               !value.isEmpty {
+                return value
+            }
+            if let values = try? container.decode([String].self, forKey: key),
+               !values.isEmpty {
+                return values.joined(separator: " ")
+            }
+        }
+        return nil
+    }
+
+    /// Reads a list that may have arrived as a bare string, as objects, or
+    /// not at all.
+    private static func stringList(
+        in container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys
+    ) -> [String] {
+        if let values = try? container.decode([String].self, forKey: key) {
+            return values.filter { !$0.isEmpty }
+        }
+        if let single = try? container.decode(String.self, forKey: key) {
+            return single.isEmpty ? [] : [single]
+        }
+        if let objects = try? container.decode([[String: String]].self, forKey: key) {
+            return objects.compactMap { object in
+                object["text"] ?? object["action"] ?? object["warning"]
+                    ?? object["description"] ?? object.values.first
+            }.filter { !$0.isEmpty }
+        }
+        return []
+    }
+
+    /// True when the model returned nothing usable, so the caller can say so
+    /// rather than presenting an empty card.
+    public var isEmpty: Bool {
+        summary.isEmpty && actions.isEmpty && warnings.isEmpty
+    }
 }
 
 /// Direction for the compose/typing feature.
