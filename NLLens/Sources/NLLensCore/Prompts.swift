@@ -32,7 +32,9 @@ public enum Prompts {
     7. If a run is too damaged to interpret, return your best guess for "nl" \
     and set "en" to the same text rather than inventing content.
 
-    Return ONLY a JSON array. One object per input run, with the same "id".
+    Completeness matters more than anything else here. Return one object for     EVERY id you were given, including ids whose text you are unsure of, ids     that are already English, and ids holding only a number or a symbol. Never     omit a run, never merge two runs into one, never summarise, and never stop     early because the list is long. A missing id leaves a gap on the user's     screen where a sentence should be.
+
+    Return ONLY a JSON array, with exactly as many objects as there were input     runs, in the same order.
     Each object has exactly: {"id": <int>, "nl": "<repaired Dutch>", "en": "<English>"}
     No commentary, no markdown fences.
     """

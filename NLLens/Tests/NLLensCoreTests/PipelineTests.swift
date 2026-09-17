@@ -203,3 +203,110 @@ final class PipelineTests: XCTestCase {
         XCTAssertTrue(body.contains("image_url"))
     }
 }
+
+/// Content going missing is the worst failure this app has: it is silent, and
+/// the user cannot tell a sentence that was dropped from one that was never
+/// on screen.
+final class CompletenessTests: XCTestCase {
+
+    private func makePipeline(transport: MockTransport) -> TranslationPipeline {
+        TranslationPipeline(
+            client: .test(transport: transport),
+            cache: nil,
+            settings: .default,
+            textModel: "test/text-model"
+        )
+    }
+
+    /// Spaced far enough apart that grouping treats them as separate elements
+    /// — otherwise they merge into one paragraph and the test is measuring
+    /// grouping rather than completeness.
+    private func blocks(_ count: Int) -> [TextBlock] {
+        (0..<count).map {
+            TextBlock(
+                id: $0, text: "Zin nummer \($0)",
+                box: BoundingBox(x: 0.1, y: Double($0) * 0.2, width: 0.8, height: 0.03)
+            )
+        }
+    }
+
+    private func units(_ ids: [Int]) -> String {
+        "[" + ids.map { #"{"id":\#($0),"nl":"Zin nummer \#($0)","en":"Sentence \#($0)"}"# }
+            .joined(separator: ",") + "]"
+    }
+
+    func testOmittedRunsAreRequestedAgain() async throws {
+        // First reply drops ids 1 and 3; the retry supplies them.
+        let transport = MockTransport(stubs: [
+            .completion(units([0, 2, 4])),
+            .completion(units([1, 3])),
+        ])
+        let outcome = try await makePipeline(transport: transport).translate(blocks: blocks(5))
+
+        XCTAssertEqual(transport.requestCount, 2, "omissions should trigger one retry")
+        XCTAssertEqual(
+            outcome.blocks.map(\.translatedText),
+            (0..<5).map { "Sentence \($0)" },
+            "every run must come back translated, not left as Dutch"
+        )
+    }
+
+    func testCompleteFirstReplyDoesNotRetry() async throws {
+        let transport = MockTransport(stubs: [.completion(units(Array(0..<4)))])
+        _ = try await makePipeline(transport: transport).translate(blocks: blocks(4))
+        XCTAssertEqual(transport.requestCount, 1, "no retry when nothing was omitted")
+    }
+
+    func testRetryFailureStillLeavesSourceTextRatherThanNothing() async throws {
+        // The retry errors. The run must still render as Dutch — visible and
+        // obviously untranslated — never as a gap.
+        let transport = MockTransport(stubs: [
+            .completion(units([0, 2])),
+            .json(#"{"detail":"boom"}"#, status: 500),
+            .json(#"{"detail":"boom"}"#, status: 500),
+            .json(#"{"detail":"boom"}"#, status: 500),
+        ])
+        let outcome = try await makePipeline(transport: transport).translate(blocks: blocks(3))
+
+        XCTAssertEqual(outcome.blocks.count, 3)
+        XCTAssertEqual(outcome.blocks[1].translatedText, "Zin nummer 1")
+    }
+
+    func testRetryOnlyAsksForWhatWasMissing() async throws {
+        let transport = MockTransport(stubs: [
+            .completion(units([0])),
+            .completion(units([1, 2])),
+        ])
+        _ = try await makePipeline(transport: transport).translate(blocks: blocks(3))
+
+        let retryBody = transport.recordedBodies()[1]
+        XCTAssertTrue(retryBody.contains("Zin nummer 1"))
+        XCTAssertTrue(retryBody.contains("Zin nummer 2"))
+        XCTAssertFalse(retryBody.contains("Zin nummer 0"), "already translated")
+    }
+
+    func testEveryBlockSurvivesABatchBoundary() async throws {
+        // More runs than fit one request: nothing may be lost at the seam.
+        let count = TranslationPipeline.batchSize * 2 + 3
+        let all = Array(0..<count)
+        let transport = MockTransport(stubs: [
+            .completion(units(all)), .completion(units(all)), .completion(units(all)),
+        ])
+        let outcome = try await makePipeline(transport: transport)
+            .translate(blocks: blocks(count))
+
+        XCTAssertEqual(
+            outcome.blocks.count, count,
+            "a run was lost crossing a batch boundary"
+        )
+    }
+
+    func testBatchSizeLeavesRoomForTheReply() {
+        // The reply carries repaired Dutch *and* English for every run, so the
+        // batch has to stay well under what the output budget can hold.
+        XCTAssertLessThanOrEqual(
+            TranslationPipeline.batchSize, 25,
+            "larger batches get truncated mid-array and the request is wasted"
+        )
+    }
+}

@@ -171,6 +171,28 @@ The whole point of image mode is that it reads as the screen you were just on.
 Letterboxing breaks that, so: explicit frame, `scaledToFill`, and chrome that
 fades after a moment rather than parking on top of the picture.
 
+## Losing content is the failure that matters
+
+It is silent: a reader cannot tell a dropped sentence from one that was never
+on screen. Four things guard against it, and none should be tightened without
+a reason better than tidiness.
+
+- **`VisionOCR.minimumConfidence` is 0.** Language correction is off because
+  it mangles Dutch, so the recognizer reads Dutch with no lexicon behind it and
+  reports low confidence for text it got *right*. A 0.3 floor was silently
+  discarding correct Dutch before the model saw it. The model repairs noise; it
+  cannot recover a line that never arrived.
+- **Groups are capped** in lines and characters. Uncapped, a page of prose
+  merges into one block, rides on one translation unit, and a model handed one
+  very long string paraphrases rather than renders it.
+- **`batchSize` is 20, not 40.** The output is the binding constraint — every
+  run returns repaired Dutch *and* English — so a large batch truncates
+  mid-array and the request is wasted.
+- **Omitted ids are re-requested once.** Models drop entries from long lists.
+  Without the retry those runs render as untranslated Dutch.
+
+`CompletenessTests` and `BlockGroupingCapTests` pin all of this.
+
 ## Conventions
 
 - The API key lives in the keychain only. Never add a build setting, an

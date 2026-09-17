@@ -16,21 +16,36 @@ public enum BlockGrouping {
         public var minHorizontalOverlap: Double
         /// Lines differing more than this in height are different elements.
         public var maxHeightRatio: Double
+        /// Most lines one group may hold.
+        public var maxLinesPerGroup: Int
+        /// Most characters one group may hold.
+        public var maxCharactersPerGroup: Int
 
         public init(
             maxLineGapRatio: Double = 0.8,
             minHorizontalOverlap: Double = 0.3,
-            maxHeightRatio: Double = 1.6
+            maxHeightRatio: Double = 1.6,
+            maxLinesPerGroup: Int = 8,
+            maxCharactersPerGroup: Int = 400
         ) {
             self.maxLineGapRatio = maxLineGapRatio
             self.minHorizontalOverlap = minHorizontalOverlap
             self.maxHeightRatio = maxHeightRatio
+            self.maxLinesPerGroup = maxLinesPerGroup
+            self.maxCharactersPerGroup = maxCharactersPerGroup
         }
 
         public static let `default` = Options()
     }
 
     /// Groups blocks into paragraphs, preserving reading order.
+    ///
+    /// Groups are capped in both lines and characters. Without a cap a page of
+    /// prose merges into a single block, which then rides on one translation
+    /// unit — and a model handed one very long string will paraphrase or
+    /// shorten it, so whole sentences vanish with nothing to detect the loss
+    /// against. Capping keeps each unit small enough that the model renders it
+    /// rather than summarising it.
     public static func group(
         _ blocks: [TextBlock],
         options: Options = .default
@@ -47,13 +62,20 @@ public enum BlockGrouping {
 
         var groups: [[TextBlock]] = []
         var current: [TextBlock] = [sorted[0]]
+        var currentLength = sorted[0].text.count
 
         for block in sorted.dropFirst() {
-            if let previous = current.last, belongTogether(previous, block, options: options) {
+            let fits = current.count < options.maxLinesPerGroup
+                && currentLength + block.text.count <= options.maxCharactersPerGroup
+
+            if fits, let previous = current.last,
+               belongTogether(previous, block, options: options) {
                 current.append(block)
+                currentLength += block.text.count
             } else {
                 groups.append(current)
                 current = [block]
+                currentLength = block.text.count
             }
         }
         groups.append(current)

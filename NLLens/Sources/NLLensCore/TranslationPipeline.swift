@@ -36,9 +36,14 @@ public enum PipelineError: Swift.Error, Equatable {
 /// Orchestrates OCR output into translated blocks.
 public struct TranslationPipeline: Sendable {
 
-    /// Blocks per request. Keeps any single call well inside context limits
-    /// and bounds the damage when one batch comes back malformed.
-    public static let batchSize = 40
+    /// Blocks per request.
+    ///
+    /// Kept well below what the context could hold, because the *output* is
+    /// the binding constraint, not the input: every run comes back as repaired
+    /// Dutch and English both, so a screen of prose needs several times its
+    /// own length in reply. Too large a batch is truncated mid-array and the
+    /// whole request is wasted.
+    public static let batchSize = 20
 
     private let client: NebiusClient
     private let cache: TranslationCache?
@@ -113,7 +118,22 @@ public struct TranslationPipeline: Sendable {
                 redactedKinds.formUnion(map.kindsFound)
 
                 let units = try await requestTranslation(for: safeBlocks)
-                let byID = Dictionary(units.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                var byID = Dictionary(
+                    units.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }
+                )
+
+                // Models quietly drop entries from long lists — more so the
+                // longer the list — and the fallback below would render those
+                // runs as untranslated Dutch. Asking again for just the
+                // omitted ones recovers most of them, and a short list is
+                // exactly the case models get right.
+                let omitted = safeBlocks.filter { byID[$0.id] == nil }
+                if !omitted.isEmpty,
+                   let recovered = try? await requestTranslation(for: omitted) {
+                    for unit in recovered where byID[unit.id] == nil {
+                        byID[unit.id] = unit
+                    }
+                }
 
                 for block in batch {
                     // A model that skipped or renumbered an entry must not
@@ -167,7 +187,7 @@ public struct TranslationPipeline: Sendable {
             ],
             model: textModel,
             temperature: 0.1,
-            maxTokens: 4096,
+            maxTokens: 8192,
             responseFormat: .jsonSchema(Schemas.translationUnits)
         )
         return try JSONExtraction.decode([TranslationUnit].self, from: raw)

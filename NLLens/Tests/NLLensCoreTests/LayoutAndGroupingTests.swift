@@ -189,3 +189,62 @@ final class BoundingBoxTests: XCTestCase {
         XCTAssertEqual(union.maxY, 0.4, accuracy: 0.0001)
     }
 }
+
+/// A group becomes one translation unit. Let it grow without limit and a page
+/// of prose arrives at the model as a single enormous string, which it will
+/// paraphrase rather than render — losing whole sentences with nothing to
+/// detect the loss against.
+final class BlockGroupingCapTests: XCTestCase {
+
+    /// Consecutive lines close enough that grouping wants to merge them all.
+    private func paragraph(lines: Int, text: String = "een regel tekst") -> [TextBlock] {
+        (0..<lines).map { index in
+            TextBlock(
+                id: index, text: text,
+                box: BoundingBox(
+                    x: 0.1, y: Double(index) * 0.04, width: 0.8, height: 0.03
+                )
+            )
+        }
+    }
+
+    func testLongParagraphIsSplitByLineCount() {
+        let grouped = BlockGrouping.group(paragraph(lines: 30))
+        XCTAssertGreaterThan(grouped.count, 1, "30 lines must not become one unit")
+        for group in grouped {
+            XCTAssertLessThanOrEqual(
+                group.text.count, BlockGrouping.Options.default.maxCharactersPerGroup + 40,
+                "group overshot the character cap"
+            )
+        }
+    }
+
+    func testCharacterCapSplitsEvenFewLines() {
+        let long = String(repeating: "lang ", count: 60)   // ~300 chars each
+        let grouped = BlockGrouping.group(paragraph(lines: 4, text: long))
+        XCTAssertGreaterThan(grouped.count, 1, "long lines must split on characters")
+    }
+
+    func testNothingIsLostWhenAGroupIsSplit() {
+        let blocks = paragraph(lines: 30)
+        let grouped = BlockGrouping.group(blocks)
+
+        let originalWords = blocks.flatMap { $0.text.split(separator: " ") }.count
+        let groupedWords = grouped.flatMap { $0.text.split(separator: " ") }.count
+        XCTAssertEqual(groupedWords, originalWords, "splitting must not drop text")
+    }
+
+    func testShortParagraphStillMergesNormally() {
+        let grouped = BlockGrouping.group(paragraph(lines: 3))
+        XCTAssertEqual(grouped.count, 1, "capping must not stop ordinary merging")
+    }
+
+    func testCapIsConfigurable() {
+        let options = BlockGrouping.Options(maxLinesPerGroup: 2)
+        let grouped = BlockGrouping.group(paragraph(lines: 6), options: options)
+        XCTAssertGreaterThanOrEqual(grouped.count, 3)
+        for group in grouped {
+            XCTAssertLessThanOrEqual(group.text.split(separator: " ").count, 2 * 3)
+        }
+    }
+}

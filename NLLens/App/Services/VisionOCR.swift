@@ -27,10 +27,19 @@ public enum VisionOCR {
         }
     }
 
-    /// Minimum confidence to keep a recognized line. Vision emits very
-    /// low-confidence candidates for icons and texture; below this they are
-    /// noise that costs tokens and confuses the grouping pass.
-    public static let minimumConfidence: Float = 0.3
+    /// Minimum confidence to keep a recognized line.
+    ///
+    /// Zero on purpose. Filtering here contradicts the rest of the design:
+    /// language correction is off because it mangles Dutch, which means the
+    /// recognizer is reading Dutch with no lexicon behind it and reports
+    /// systematically low confidence for text it got *right*. A 0.3 floor
+    /// silently dropped correct Dutch before the model ever saw it.
+    ///
+    /// The model repairs noise; it cannot recover a line that never arrived.
+    /// A junk line costs a few tokens and is obvious on screen. A missing
+    /// sentence is silent, and the reader cannot tell it from one that was
+    /// never there. So the bias runs hard toward keeping everything.
+    public static let minimumConfidence: Float = 0
 
     public static func recognize(cgImage: CGImage) throws -> [TextBlock] {
         let request = VNRecognizeTextRequest()
@@ -40,8 +49,10 @@ public enum VisionOCR {
         request.usesLanguageCorrection = false
         request.recognitionLanguages = ["en-US"]
 
-        // Screens are dense with small text; the default minimum drops it.
-        request.minimumTextHeight = 0.008
+        // Vision defaults to 1/32 of the image height, which discards the
+        // fine print — terms, disclaimers, the line about what renews — that
+        // is exactly what someone who cannot read Dutch most needs.
+        request.minimumTextHeight = 0.005
 
         let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
         do {
@@ -57,7 +68,9 @@ public enum VisionOCR {
 
         for observation in observations {
             guard let candidate = observation.topCandidates(1).first else { continue }
-            guard candidate.confidence >= minimumConfidence else { continue }
+            if minimumConfidence > 0, candidate.confidence < minimumConfidence {
+                continue
+            }
 
             let text = candidate.string.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { continue }
