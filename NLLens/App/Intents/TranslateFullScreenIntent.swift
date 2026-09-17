@@ -21,9 +21,9 @@ struct TranslateFullScreenIntent: AppIntent {
     @Parameter(title: "Screenshot", supportedContentTypes: [.image])
     var screenshot: IntentFile
 
-    func perform() async throws -> some IntentResult & ProvidesDialog {
-        let message = await FullScreenTranslationRun.perform(screenshot: screenshot)
-        return .result(dialog: IntentDialog(stringLiteral: message))
+    func perform() async throws -> some IntentResult {
+        await FullScreenTranslationRun.perform(screenshot: screenshot)
+        return .result()
     }
 }
 
@@ -34,8 +34,11 @@ struct TranslateFullScreenIntent: AppIntent {
 /// exists so shortcuts built before the default changed keep working.
 enum FullScreenTranslationRun {
 
-    /// Runs the flow and returns the line the action should speak back.
-    static func perform(screenshot: IntentFile) async -> String {
+    /// Runs the flow. Deliberately silent: the app comes forward and shows
+    /// the result, so a banner announcing what just happened is noise on top
+    /// of the answer. Failures surface in the app too, through
+    /// `OverlayPresenter.failure`, rather than as a notification.
+    static func perform(screenshot: IntentFile) async {
         let environment = AppEnvironment.shared
 
         // Before any work: `openAppWhenRun` has already brought the app
@@ -45,12 +48,12 @@ enum FullScreenTranslationRun {
         OverlayPresenter.reportProgress(completed: 0, total: 1)
 
         guard environment.hasAPIKey || !environment.settings.cloudEnabled else {
-            OverlayPresenter.clearProgress()
-            return "No Nebius API key set. Add one in Settings."
+            await fail("No Nebius API key set. Add one in Settings.")
+            return
         }
         guard let image = IntentImageLoader.image(from: screenshot) else {
-            OverlayPresenter.clearProgress()
-            return "Could not read that screenshot."
+            await fail("Could not read that screenshot.")
+            return
         }
 
         do {
@@ -60,22 +63,27 @@ enum FullScreenTranslationRun {
                     renderedImage: result.rendered,
                     originalImage: result.original,
                     pairs: result.outcome.blocks,
-                    createdAt: Date()
+                    createdAt: Date(),
+                    redactedCount: result.outcome.redactedCount
                 )
             )
-            return TranslateScreenshotIntent.summary(for: result.outcome)
+
         } catch ScreenTranslator.Failure.noTextFound {
-            OverlayPresenter.clearProgress()
-            return "No text found on that screen."
+            await fail("No text found on that screen.")
         } catch PipelineError.cloudDisabled {
-            OverlayPresenter.clearProgress()
-            return "Cloud translation is off. Turn it on in Settings."
+            await fail("Cloud translation is off. Turn it on in Settings.")
         } catch let error as NebiusError {
-            OverlayPresenter.clearProgress()
-            return error.userMessage
+            await fail(error.userMessage)
         } catch {
-            OverlayPresenter.clearProgress()
-            return "Translation failed."
+            await fail("Translation failed.")
         }
+    }
+
+    /// Clears the progress indicator and shows the reason inside the app,
+    /// since there is no longer a dialog to speak it through.
+    @MainActor
+    private static func fail(_ message: String) {
+        OverlayPresenter.shared.progress = nil
+        OverlayPresenter.shared.failure = message
     }
 }

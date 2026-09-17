@@ -29,7 +29,7 @@ struct TranslateLongScreenIntent: AppIntent {
     @Parameter(title: "Screenshots", supportedContentTypes: [.image])
     var screenshots: [IntentFile]
 
-    func perform() async throws -> some IntentResult & ProvidesDialog {
+    func perform() async throws -> some IntentResult {
         let environment = AppEnvironment.shared
 
         // Raised before the images are even decoded, so the app never shows a
@@ -37,14 +37,14 @@ struct TranslateLongScreenIntent: AppIntent {
         OverlayPresenter.reportProgress(completed: 0, total: max(screenshots.count, 1))
 
         guard environment.hasAPIKey || !environment.settings.cloudEnabled else {
-            OverlayPresenter.clearProgress()
-            return .result(dialog: "No Nebius API key set. Add one in Settings.")
+            await fail("No Nebius API key set. Add one in Settings.")
+            return .result()
         }
 
         let images = screenshots.compactMap(IntentImageLoader.image(from:))
         guard !images.isEmpty else {
-            OverlayPresenter.clearProgress()
-            return .result(dialog: "Could not read those screenshots.")
+            await fail("Could not read those screenshots.")
+            return .result()
         }
 
         OverlayPresenter.reportProgress(completed: 0, total: images.count)
@@ -60,36 +60,30 @@ struct TranslateLongScreenIntent: AppIntent {
                     originalImage: result.firstOriginal,
                     pairs: result.document.blocks,
                     createdAt: Date(),
-                    screenCount: result.document.screenCount
+                    screenCount: result.document.screenCount,
+                    redactedCount: result.outcome.redactedCount
                 )
             )
 
-            return .result(dialog: IntentDialog(stringLiteral: Self.summary(for: result)))
+            return .result()
         } catch ScreenTranslator.Failure.noTextFound {
-            OverlayPresenter.clearProgress()
-            return .result(dialog: "No text found in those screenshots.")
+            await fail("No text found in those screenshots.")
+            return .result()
         } catch PipelineError.cloudDisabled {
-            OverlayPresenter.clearProgress()
-            return .result(dialog: "Cloud translation is off. Turn it on in Settings.")
+            await fail("Cloud translation is off. Turn it on in Settings.")
+            return .result()
         } catch let error as NebiusError {
-            OverlayPresenter.clearProgress()
-            return .result(dialog: IntentDialog(stringLiteral: error.userMessage))
+            await fail(error.userMessage)
+            return .result()
         } catch {
-            OverlayPresenter.clearProgress()
-            return .result(dialog: "Translation failed.")
+            await fail("Translation failed.")
+            return .result()
         }
     }
 
-    static func summary(for result: ScreenTranslator.MultiResult) -> String {
-        var parts = [
-            "Joined \(result.document.screenCount) screens into \(result.document.blocks.count) lines"
-        ]
-        if result.document.duplicatesRemoved > 0 {
-            parts.append("\(result.document.duplicatesRemoved) repeated lines merged")
-        }
-        if result.outcome.redactedCount > 0 {
-            parts.append("\(result.outcome.redactedCount) masked before sending")
-        }
-        return parts.joined(separator: ", ") + "."
+    @MainActor
+    private func fail(_ message: String) {
+        OverlayPresenter.shared.progress = nil
+        OverlayPresenter.shared.failure = message
     }
 }

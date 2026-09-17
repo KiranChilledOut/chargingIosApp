@@ -27,24 +27,9 @@ struct TranslateScreenshotIntent: AppIntent {
     @Parameter(title: "Screenshot", supportedContentTypes: [.image])
     var screenshot: IntentFile
 
-    func perform() async throws -> some IntentResult & ProvidesDialog {
-        let message = await FullScreenTranslationRun.perform(screenshot: screenshot)
-        return .result(dialog: IntentDialog(stringLiteral: message))
-    }
-
-    /// Spoken/banner line. Mentions redaction only when something was masked,
-    /// so it stays quiet on ordinary screens.
-    static func summary(for outcome: TranslationOutcome) -> String {
-        var parts: [String] = ["Translated \(outcome.blocks.count) items"]
-        if outcome.servedEntirelyFromCache {
-            parts.append("from cache")
-        } else if outcome.cacheHits > 0 {
-            parts.append("\(outcome.cacheHits) from cache")
-        }
-        if outcome.redactedCount > 0 {
-            parts.append("\(outcome.redactedCount) masked before sending")
-        }
-        return parts.joined(separator: ", ") + "."
+    func perform() async throws -> some IntentResult {
+        await FullScreenTranslationRun.perform(screenshot: screenshot)
+        return .result()
     }
 }
 

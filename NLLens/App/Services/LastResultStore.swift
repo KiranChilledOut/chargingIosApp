@@ -18,6 +18,11 @@ public enum LastResultStore {
         /// longer share a coordinate space, so the result is for reading
         /// rather than for drawing an overlay.
         public var screenCount: Int = 1
+        /// How many personal identifiers were masked before anything was sent.
+        /// Surfaced in the viewer rather than a banner — it is the only place
+        /// the redaction behaviour is visible, so it should not vanish with
+        /// the popup that used to carry it.
+        public var redactedCount: Int = 0
 
         public var isMultiScreen: Bool { screenCount > 1 }
     }
@@ -27,6 +32,7 @@ public enum LastResultStore {
         var createdAt: Date
         /// Optional so snapshots written by an earlier build still decode.
         var screenCount: Int?
+        var redactedCount: Int?
     }
 
     private static var directory: URL {
@@ -55,7 +61,8 @@ public enum LastResultStore {
                 try data.write(to: originalURL, options: .atomic)
             }
             let payload = Persisted(
-                pairs: outcome.blocks, createdAt: Date(), screenCount: screenCount
+                pairs: outcome.blocks, createdAt: Date(), screenCount: screenCount,
+                redactedCount: outcome.redactedCount
             )
             try JSONEncoder().encode(payload).write(to: metadataURL, options: .atomic)
         } catch {
@@ -75,7 +82,8 @@ public enum LastResultStore {
             originalImage: (try? Data(contentsOf: originalURL)).flatMap(UIImage.init(data:)),
             pairs: payload.pairs,
             createdAt: payload.createdAt,
-            screenCount: payload.screenCount ?? 1
+            screenCount: payload.screenCount ?? 1,
+            redactedCount: payload.redactedCount ?? 0
         )
     }
 

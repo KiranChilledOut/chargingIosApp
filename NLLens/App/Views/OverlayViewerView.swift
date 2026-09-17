@@ -188,7 +188,7 @@ struct OverlayViewerView: View {
         VStack {
             chromeBar
             Spacer()
-            Text(showingOriginal ? "Original" : "Hold anywhere to see the Dutch")
+            Text(hintText)
                 .font(.caption)
                 .foregroundStyle(.white.opacity(0.85))
                 .padding(.horizontal, 12)
@@ -196,6 +196,22 @@ struct OverlayViewerView: View {
                 .background(.ultraThinMaterial, in: Capsule())
                 .padding(.bottom, 24)
         }
+    }
+
+    /// The one line of status the viewer shows, and only while the chrome is
+    /// visible — so it fades with everything else instead of interrupting.
+    ///
+    /// The masking count used to ride along in the Shortcuts banner. That
+    /// banner is gone, and this is now the only place the redaction behaviour
+    /// is visible, which is worth a couple of seconds of screen space on the
+    /// screens where it actually happened.
+    private var hintText: String {
+        if showingOriginal { return "Original" }
+        if snapshot.redactedCount > 0 {
+            let noun = snapshot.redactedCount == 1 ? "detail" : "details"
+            return "\(snapshot.redactedCount) personal \(noun) masked before sending"
+        }
+        return "Hold anywhere to see the Dutch"
     }
 
     private var chromeBar: some View {
