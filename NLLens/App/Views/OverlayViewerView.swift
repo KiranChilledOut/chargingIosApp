@@ -48,6 +48,7 @@ struct OverlayViewerView: View {
     @State private var explanation: ScreenExplanation?
     @State private var isExplaining = false
     @State private var explainError: String?
+    @State private var chromeHideTask: Task<Void, Never>?
 
     @State private var scale: CGFloat = 1
     @State private var committedScale: CGFloat = 1
@@ -121,36 +122,64 @@ struct OverlayViewerView: View {
             // The result has already arrived by the time this is on screen, so
             // the confirmation is for a translation that is done, not starting.
             UINotificationFeedbackGenerator().notificationOccurred(.success)
+            scheduleChromeHide()
+        }
+        .onDisappear { chromeHideTask?.cancel() }
+        .onChange(of: mode) { _, _ in
+            // Reading and explain keep their bar; only the image gets out of
+            // the way. Coming back to it, show the controls then fade them.
+            revealChrome()
         }
     }
 
     // MARK: - Image mode
 
+    /// The capture drawn at exactly the size of the display.
+    ///
+    /// The geometry here is load-bearing, and the obvious spelling is wrong.
+    /// `scaledToFit` sizes the image to the *proposed* size, and inside a
+    /// presented cover that proposal is already inset by the safe area — so
+    /// the screenshot lands in roughly 759 of the 852 points an iPhone 14 Pro
+    /// actually has, with black bands top and bottom. Applying
+    /// `.ignoresSafeArea()` afterwards extends where the view may draw but
+    /// never re-proposes a larger size, so it does not help.
+    ///
+    /// Reading the real bounds from a `GeometryReader` that ignores the safe
+    /// area, and framing the image to them explicitly, is what makes it fill
+    /// the display. `scaledToFill` rather than fit so there can be no
+    /// letterboxing even if a capture's aspect ratio differs slightly — from
+    /// another device, say — at the cost of a few cropped pixels nobody sees.
     @ViewBuilder
     private var imageLayer: some View {
-        if let image {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFit()
-                .scaleEffect(scale)
-                .offset(offset)
-                .ignoresSafeArea()
-                .gesture(dragGesture)
-                .simultaneousGesture(magnifyGesture)
-                .onTapGesture(count: 2) { toggleZoom() }
-                .onTapGesture { withAnimation { showingChrome.toggle() } }
-                .onLongPressGesture(minimumDuration: 0.25, maximumDistance: 30) {
-                    // Completion is unused; peeking is driven by `pressing`.
-                } onPressingChanged: { pressing in
-                    showingOriginal = pressing
-                }
-        } else {
-            ContentUnavailableView(
-                "No image",
-                systemImage: "photo",
-                description: Text("Switch to text to read this translation.")
-            )
+        GeometryReader { geometry in
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                    .scaleEffect(scale)
+                    .offset(offset)
+                    .clipped()
+                    .contentShape(Rectangle())
+                    .gesture(dragGesture)
+                    .simultaneousGesture(magnifyGesture)
+                    .onTapGesture(count: 2) { toggleZoom() }
+                    .onTapGesture { revealChrome(toggling: true) }
+                    .onLongPressGesture(minimumDuration: 0.25, maximumDistance: 30) {
+                        // Completion is unused; peeking is driven by `pressing`.
+                    } onPressingChanged: { pressing in
+                        showingOriginal = pressing
+                    }
+            } else {
+                ContentUnavailableView(
+                    "No image",
+                    systemImage: "photo",
+                    description: Text("Switch to text to read this translation.")
+                )
+                .frame(width: geometry.size.width, height: geometry.size.height)
+            }
         }
+        .ignoresSafeArea()
     }
 
     // MARK: - Chrome
@@ -246,6 +275,36 @@ struct OverlayViewerView: View {
                 .background(.ultraThinMaterial, in: Circle())
         }
         .accessibilityLabel(label)
+    }
+
+    // MARK: - Chrome visibility
+
+    /// Shows the controls, then fades them again.
+    ///
+    /// The point of the image mode is that it looks like the screen you were
+    /// just on. Buttons parked permanently on top of it break that, so they
+    /// appear, prove they exist, and get out of the way — a tap brings them
+    /// back.
+    private func revealChrome(toggling: Bool = false) {
+        chromeHideTask?.cancel()
+
+        if toggling, showingChrome {
+            withAnimation { showingChrome = false }
+            return
+        }
+        withAnimation { showingChrome = true }
+        scheduleChromeHide()
+    }
+
+    private func scheduleChromeHide() {
+        chromeHideTask?.cancel()
+        guard mode == .image else { return }
+
+        chromeHideTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2.5))
+            guard !Task.isCancelled else { return }
+            withAnimation { showingChrome = false }
+        }
     }
 
     // MARK: - Actions

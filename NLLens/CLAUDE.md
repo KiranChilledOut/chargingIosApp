@@ -141,6 +141,22 @@ all of those and the user sees an error for a usable reply. `encode(to:)` is
 explicit because the alternate-spelling `CodingKeys` cases stop Swift
 synthesizing one.
 
+## The full-bleed image is deliberate, not redundant
+
+`OverlayViewerView.imageLayer` reads bounds from a `GeometryReader` that
+ignores the safe area and frames the image to them explicitly. That looks like
+something a tidy-up would replace with a plain `.scaledToFit()`. It is not.
+
+`scaledToFit` sizes to the *proposed* size, and inside a presented cover the
+proposal is already inset by the safe area — so the capture lands in about 759
+of the 852 points an iPhone 14 Pro has, with black bands top and bottom.
+`.ignoresSafeArea()` applied afterwards extends where the view may draw but
+never re-proposes a larger size, so it does not fix it.
+
+The whole point of image mode is that it reads as the screen you were just on.
+Letterboxing breaks that, so: explicit frame, `scaledToFill`, and chrome that
+fades after a moment rather than parking on top of the picture.
+
 ## Conventions
 
 - The API key lives in the keychain only. Never add a build setting, an
