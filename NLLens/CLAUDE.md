@@ -109,6 +109,20 @@ median, because the recognizer reports no font size and reading mode would
 otherwise flatten every long page into undifferentiated text. The ratios are
 relative on purpose: absolute heights vary with device and capture scale.
 
+## All translate actions open the app
+
+"Translate Screen", "Translate Screen (Full Size)" and "Translate Long Screen"
+all set `openAppWhenRun = true` and present `OverlayViewerView`. The first two
+are deliberate duplicates sharing `FullScreenTranslationRun`: renaming or
+removing an action breaks any shortcut already bound to it, and a shortcut that
+silently stops working is worse than a spare row in the Shortcuts picker.
+
+"Translate Screen" used to return a Shortcuts snippet, so that the Dutch app
+was never left. Do not restore that: a snippet is a system-sized card with a
+Done button and **cannot** fill the display, so the most obviously-named action
+was quietly giving the worst presentation. Snippets remain right for Explain
+and Write in Dutch, which are short answers rather than a screen to read.
+
 ## Capture paths
 
 Three ways in, deliberately:

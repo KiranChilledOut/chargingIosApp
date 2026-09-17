@@ -3,93 +3,33 @@ import SwiftUI
 import UIKit
 import NLLensCore
 
-/// Translate whatever is on screen, without leaving the app you are in.
+/// Translate whatever is on screen.
 ///
-/// `openAppWhenRun` is false on purpose: the intent runs in the background and
-/// Shortcuts presents the returned snippet over the foreground app. That is
-/// what stands in for the floating overlay iOS does not allow — bound to Back
-/// Tap, it is a double-tap on the back of the phone and the English appears
-/// on top of the Dutch app.
+/// This is the name people pick, so it does the good thing: `openAppWhenRun`
+/// brings NL Lens forward and draws the translated capture edge to edge.
+///
+/// It used to return a Shortcuts snippet instead, on the reasoning that never
+/// leaving the Dutch app was worth more than size. In practice a snippet is a
+/// system-sized card with a Done button on it — it cannot fill the display, no
+/// matter how its contents are laid out — and a shortcut built against this
+/// action silently got the worst of the three presentations. The card is not
+/// worth the confusion, so the default now matches what the action's name
+/// implies.
 struct TranslateScreenshotIntent: AppIntent {
 
     static var title: LocalizedStringResource = "Translate Screen"
     static var description = IntentDescription(
-        "Reads Dutch text from a screenshot and shows it in English, in place.",
+        "Reads Dutch text from a screenshot and shows the translated screen at full size.",
         categoryName: "Translate"
     )
-    static var openAppWhenRun: Bool = false
+    static var openAppWhenRun: Bool = true
 
     @Parameter(title: "Screenshot", supportedContentTypes: [.image])
     var screenshot: IntentFile
 
-    func perform() async throws -> some IntentResult & ProvidesDialog & ShowsSnippetView {
-        let environment = AppEnvironment.shared
-
-        guard environment.hasAPIKey || !environment.settings.cloudEnabled else {
-            return .result(
-                dialog: "No Nebius API key set. Add one in NL Lens › Settings.",
-                view: NLLensSnippetView.message(
-                    "API key needed",
-                    "Open NL Lens and paste your Nebius key in Settings.",
-                    symbol: "key.slash"
-                )
-            )
-        }
-
-        guard let image = IntentImageLoader.image(from: screenshot) else {
-            return .result(
-                dialog: "Could not read that screenshot.",
-                view: NLLensSnippetView.message(
-                    "Unreadable image",
-                    "The shortcut did not pass a usable screenshot.",
-                    symbol: "photo.badge.exclamationmark"
-                )
-            )
-        }
-
-        do {
-            let result = try await ScreenTranslator.translate(image: image)
-            return .result(
-                dialog: IntentDialog(stringLiteral: Self.summary(for: result.outcome)),
-                view: NLLensSnippetView(content: .translation(
-                    image: result.rendered, outcome: result.outcome
-                ))
-            )
-        } catch ScreenTranslator.Failure.noTextFound {
-            return .result(
-                dialog: "No text found on that screen.",
-                view: NLLensSnippetView.message(
-                    "No text found",
-                    "Nothing on this screen was recognised as text.",
-                    symbol: "text.viewfinder"
-                )
-            )
-        } catch PipelineError.cloudDisabled {
-            return .result(
-                dialog: "Cloud translation is off.",
-                view: NLLensSnippetView.message(
-                    "Cloud is off",
-                    "Turn it on in Settings, or open NL Lens to translate on-device.",
-                    symbol: "icloud.slash"
-                )
-            )
-        } catch let error as NebiusError {
-            return .result(
-                dialog: IntentDialog(stringLiteral: error.userMessage),
-                view: NLLensSnippetView.message(
-                    "Translation failed", error.userMessage,
-                    symbol: "exclamationmark.triangle"
-                )
-            )
-        } catch {
-            return .result(
-                dialog: "Translation failed.",
-                view: NLLensSnippetView.message(
-                    "Translation failed", error.localizedDescription,
-                    symbol: "exclamationmark.triangle"
-                )
-            )
-        }
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let message = await FullScreenTranslationRun.perform(screenshot: screenshot)
+        return .result(dialog: IntentDialog(stringLiteral: message))
     }
 
     /// Spoken/banner line. Mentions redaction only when something was masked,

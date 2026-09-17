@@ -3,21 +3,15 @@ import SwiftUI
 import UIKit
 import NLLensCore
 
-/// Translate the screen and show it at full size.
+/// Kept so that shortcuts built against this action keep working.
 ///
-/// The sibling `TranslateScreenshotIntent` keeps you inside the Dutch app but
-/// is confined to a Shortcuts snippet, which is a system-sized card and cannot
-/// be made to fill the display. This one trades that: `openAppWhenRun` brings
-/// NL Lens forward and hands the result to `OverlayViewerView`, which draws the
-/// rendered screenshot edge to edge. Because that image has exactly the
-/// dimensions of the screen it came from, it reads as the original screen with
-/// English on it. Swipe down or press Close to go back to the Dutch app.
-///
-/// Bind whichever suits you to Back Tap; dense screens and long text want this
-/// one, a single label wants the card.
+/// It behaves identically to `TranslateScreenshotIntent`, which is now the
+/// default and does the same thing. Renaming or removing an action breaks any
+/// shortcut already bound to it, and a shortcut that silently stops working is
+/// worse than one extra entry in the Shortcuts picker.
 struct TranslateFullScreenIntent: AppIntent {
 
-    static var title: LocalizedStringResource = "Translate Screen Full Size"
+    static var title: LocalizedStringResource = "Translate Screen (Full Size)"
     static var description = IntentDescription(
         "Reads Dutch text from a screenshot and shows the translated screen at full size.",
         categoryName: "Translate"
@@ -28,6 +22,20 @@ struct TranslateFullScreenIntent: AppIntent {
     var screenshot: IntentFile
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
+        let message = await FullScreenTranslationRun.perform(screenshot: screenshot)
+        return .result(dialog: IntentDialog(stringLiteral: message))
+    }
+}
+
+/// The full-size translate flow, shared by the actions that present it.
+///
+/// Kept in one place because two actions run it: "Translate Screen", which is
+/// the name anyone picks by default, and "Translate Screen (Full Size)", which
+/// exists so shortcuts built before the default changed keep working.
+enum FullScreenTranslationRun {
+
+    /// Runs the flow and returns the line the action should speak back.
+    static func perform(screenshot: IntentFile) async -> String {
         let environment = AppEnvironment.shared
 
         // Before any work: `openAppWhenRun` has already brought the app
@@ -38,11 +46,11 @@ struct TranslateFullScreenIntent: AppIntent {
 
         guard environment.hasAPIKey || !environment.settings.cloudEnabled else {
             OverlayPresenter.clearProgress()
-            return .result(dialog: "No Nebius API key set. Add one in Settings.")
+            return "No Nebius API key set. Add one in Settings."
         }
         guard let image = IntentImageLoader.image(from: screenshot) else {
             OverlayPresenter.clearProgress()
-            return .result(dialog: "Could not read that screenshot.")
+            return "Could not read that screenshot."
         }
 
         do {
@@ -55,23 +63,19 @@ struct TranslateFullScreenIntent: AppIntent {
                     createdAt: Date()
                 )
             )
-            return .result(
-                dialog: IntentDialog(
-                    stringLiteral: TranslateScreenshotIntent.summary(for: result.outcome)
-                )
-            )
+            return TranslateScreenshotIntent.summary(for: result.outcome)
         } catch ScreenTranslator.Failure.noTextFound {
             OverlayPresenter.clearProgress()
-            return .result(dialog: "No text found on that screen.")
+            return "No text found on that screen."
         } catch PipelineError.cloudDisabled {
             OverlayPresenter.clearProgress()
-            return .result(dialog: "Cloud translation is off. Turn it on in Settings.")
+            return "Cloud translation is off. Turn it on in Settings."
         } catch let error as NebiusError {
             OverlayPresenter.clearProgress()
-            return .result(dialog: IntentDialog(stringLiteral: error.userMessage))
+            return error.userMessage
         } catch {
             OverlayPresenter.clearProgress()
-            return .result(dialog: "Translation failed.")
+            return "Translation failed."
         }
     }
 }

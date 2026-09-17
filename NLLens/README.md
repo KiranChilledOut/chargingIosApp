@@ -164,14 +164,19 @@ swift test
 
    | Action | What you get | Best for |
    |---|---|---|
-   | **Translate Screen Full Size** | NL Lens opens and draws the translated screen edge to edge. | Most things — dense screens, forms, anything you need to read |
+   | **Translate Screen** | NL Lens opens and draws the translated screen edge to edge. | Almost everything |
    | **Translate Long Screen** | Several captures joined into one continuous English document. | Articles, terms, emails — anything longer than a screen |
-   | **Translate Screen** | A floating card over the Dutch app; you never leave it. | A quick look at one label |
 
-   The card cannot be made full screen: a Shortcuts snippet is a system-sized
-   sheet. Full size means the app comes forward, which is the trade. Since the
-   rendered image has exactly the dimensions of the screen it came from, drawn
-   full-bleed it reads as your screen with English on it.
+   *(**Translate Screen (Full Size)** also appears, and does exactly the same
+   thing as **Translate Screen**. It only exists so shortcuts built before the
+   default changed keep working — either is fine.)*
+
+   Translating brings NL Lens forward for a moment. That is the trade for
+   filling the display: a Shortcuts snippet stays over the Dutch app but is a
+   system-sized card with a Done button, and cannot be made full screen no
+   matter how its contents are laid out. Since the rendered image has exactly
+   the dimensions of the screen it came from, drawn full-bleed it reads as your
+   screen with English on it.
 
    **For long screens**, build the shortcut as: **Get Latest Screenshots**
    (count: however many you took) → **Reverse** (so they run oldest first) →
