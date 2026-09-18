@@ -18,17 +18,21 @@ public enum OverlayRenderer {
         public var cornerRadius: Double
         /// Padding inside each replaced box.
         public var inset: Double
+        /// How far text may spill past its box before it is clipped instead.
+        public var maximumOverflow: Double
 
         public init(
             maximumFontScale: Double = 0.78,
             minimumFontSize: Double = 9,
             cornerRadius: Double = 3,
-            inset: Double = 1.5
+            inset: Double = 1.5,
+            maximumOverflow: Double = 1.8
         ) {
             self.maximumFontScale = maximumFontScale
             self.minimumFontSize = minimumFontSize
             self.cornerRadius = cornerRadius
             self.inset = inset
+            self.maximumOverflow = maximumOverflow
         }
 
         public static let `default` = Style()
@@ -64,7 +68,7 @@ public enum OverlayRenderer {
 
                 guard rect.width > 2, rect.height > 2 else { continue }
 
-                let background = averageColor(of: image, in: rect) ?? .systemBackground
+                let background = dominantColor(of: image, in: rect) ?? .systemBackground
                 let foreground = contrastingTextColor(for: background)
 
                 let path = UIBezierPath(
@@ -91,55 +95,83 @@ public enum OverlayRenderer {
         color: UIColor,
         style: Style
     ) {
-        // Conversions are explicit rather than leaning on the implicit
-        // CGFloat/Double bridging, which only exists on Apple platforms.
         let boxWidth = Double(rect.width)
         let boxHeight = Double(rect.height)
-        let maxFontSize = max(style.minimumFontSize, boxHeight * style.maximumFontScale)
+        let ceiling = max(style.minimumFontSize, boxHeight * style.maximumFontScale)
 
-        let fontSize = LayoutFitting.fittedFontSize(
-            text: text,
-            boxWidth: boxWidth,
-            boxHeight: boxHeight,
-            maxFontSize: maxFontSize,
-            minFontSize: style.minimumFontSize
-        )
-
-        let font = UIFont.systemFont(ofSize: CGFloat(fontSize))
+        // Wrap, never truncate. The estimate below can be optimistic, and with
+        // a truncating style the overflow came out as "…" — the reader loses
+        // the end of a sentence and cannot tell that they have.
         let paragraph = NSMutableParagraphStyle()
-        paragraph.lineBreakMode = .byTruncatingTail
+        paragraph.lineBreakMode = .byWordWrapping
         paragraph.alignment = .left
 
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: color,
-            .paragraphStyle: paragraph,
-        ]
+        func measure(at size: Double) -> CGRect {
+            let attributed = NSAttributedString(
+                string: text,
+                attributes: [
+                    .font: UIFont.systemFont(ofSize: CGFloat(size)),
+                    .paragraphStyle: paragraph,
+                ]
+            )
+            return attributed.boundingRect(
+                with: CGSize(width: rect.width, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                context: nil
+            )
+        }
 
-        let attributed = NSAttributedString(string: text, attributes: attributes)
-        let bounding = attributed.boundingRect(
-            with: CGSize(width: rect.width, height: .greatestFiniteMagnitude),
+        // `LayoutFitting` approximates character width, which is close enough
+        // to start from but not to trust — the real font is often wider, and
+        // the difference is exactly what overflowed the box. So take its answer
+        // as an upper bound and shrink against real measurement until the text
+        // genuinely fits.
+        var size = LayoutFitting.fittedFontSize(
+            text: text, boxWidth: boxWidth, boxHeight: boxHeight,
+            maxFontSize: ceiling, minFontSize: style.minimumFontSize
+        )
+        while size > style.minimumFontSize,
+              Double(measure(at: size).height) > boxHeight {
+            size = max(style.minimumFontSize, size - 0.5)
+        }
+
+        let bounding = measure(at: size)
+
+        // At the floor it may still not fit. Overflowing a little beats an
+        // ellipsis: the words are all there, and a box on a screenshot has
+        // whitespace around it more often than not.
+        let drawHeight = min(bounding.height, rect.height * CGFloat(style.maximumOverflow))
+        let y = rect.midY - drawHeight / 2
+
+        NSAttributedString(
+            string: text,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: CGFloat(size)),
+                .foregroundColor: color,
+                .paragraphStyle: paragraph,
+            ]
+        ).draw(
+            with: CGRect(
+                x: rect.minX, y: y, width: rect.width, height: drawHeight
+            ),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
             context: nil
         )
-
-        // Centre vertically in the original box so the replacement sits on the
-        // same baseline the eye already expects.
-        let y = rect.midY - bounding.height / 2
-        attributed.draw(with: CGRect(
-            x: rect.minX, y: max(rect.minY, y),
-            width: rect.width, height: min(rect.height, bounding.height)
-        ), options: [.usesLineFragmentOrigin, .usesFontLeading], context: nil)
     }
 
     // MARK: - Colour sampling
 
-    /// Mean colour of a region, used as the fill that hides the Dutch.
+    /// The region's dominant colour, used as the fill that hides the Dutch.
     ///
-    /// Sampling rather than using a fixed colour is what keeps the overlay
-    /// from looking pasted on: dark-mode screens get dark patches, a coloured
-    /// banner keeps its colour.
-    static func averageColor(of image: UIImage, in rect: CGRect) -> UIColor? {
+    /// The mean is the obvious choice and it is wrong. A bright green header
+    /// with black lettering averages to a murky dark green, which then reads
+    /// as a dark patch stamped on a light bar — and the contrast rule, seeing
+    /// a dark fill, puts white text on it, compounding the mismatch.
+    ///
+    /// Background pixels outnumber glyph pixels on any realistic label, so the
+    /// most common colour is the background. Sampling a small grid and taking
+    /// the modal bucket gets it, cheaply.
+    static func dominantColor(of image: UIImage, in rect: CGRect) -> UIColor? {
         guard let cgImage = image.cgImage else { return nil }
 
         let scale = image.scale
@@ -153,22 +185,35 @@ public enum OverlayRenderer {
         guard !clamped.isNull, clamped.width >= 1, clamped.height >= 1,
               let cropped = cgImage.cropping(to: clamped) else { return nil }
 
-        // Averaging by drawing into a 1x1 context is far cheaper than reading
-        // every pixel, and precision beyond this is invisible behind text.
-        var pixel = [UInt8](repeating: 0, count: 4)
+        let side = 8
+        var pixels = [UInt8](repeating: 0, count: side * side * 4)
         guard let context = CGContext(
-            data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
-            space: CGColorSpaceCreateDeviceRGB(),
+            data: &pixels, width: side, height: side, bitsPerComponent: 8,
+            bytesPerRow: side * 4, space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else { return nil }
 
-        context.interpolationQuality = .medium
-        context.draw(cropped, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        context.interpolationQuality = .none  // no blending of ink into ground
+        context.draw(cropped, in: CGRect(x: 0, y: 0, width: side, height: side))
+
+        // Quantize to 32 levels per channel so near-identical background
+        // pixels land in one bucket, then take the fullest bucket's mean.
+        var counts: [Int: (count: Int, r: Int, g: Int, b: Int)] = [:]
+        for index in stride(from: 0, to: pixels.count, by: 4) {
+            let r = Int(pixels[index])
+            let g = Int(pixels[index + 1])
+            let b = Int(pixels[index + 2])
+            let key = (r >> 3) << 10 | (g >> 3) << 5 | (b >> 3)
+            let existing = counts[key] ?? (0, 0, 0, 0)
+            counts[key] = (existing.count + 1, existing.r + r, existing.g + g, existing.b + b)
+        }
+        guard let winner = counts.values.max(by: { $0.count < $1.count }),
+              winner.count > 0 else { return nil }
 
         return UIColor(
-            red: CGFloat(pixel[0]) / 255,
-            green: CGFloat(pixel[1]) / 255,
-            blue: CGFloat(pixel[2]) / 255,
+            red: CGFloat(winner.r / winner.count) / 255,
+            green: CGFloat(winner.g / winner.count) / 255,
+            blue: CGFloat(winner.b / winner.count) / 255,
             alpha: 1
         )
     }

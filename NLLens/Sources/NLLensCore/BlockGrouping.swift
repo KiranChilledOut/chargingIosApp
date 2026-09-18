@@ -20,19 +20,23 @@ public enum BlockGrouping {
         public var maxLinesPerGroup: Int
         /// Most characters one group may hold.
         public var maxCharactersPerGroup: Int
+        /// Most interrupting blocks that may be stepped over in one group.
+        public var maxAsidesPerGroup: Int
 
         public init(
             maxLineGapRatio: Double = 0.8,
             minHorizontalOverlap: Double = 0.3,
             maxHeightRatio: Double = 1.6,
             maxLinesPerGroup: Int = 8,
-            maxCharactersPerGroup: Int = 400
+            maxCharactersPerGroup: Int = 400,
+            maxAsidesPerGroup: Int = 2
         ) {
             self.maxLineGapRatio = maxLineGapRatio
             self.minHorizontalOverlap = minHorizontalOverlap
             self.maxHeightRatio = maxHeightRatio
             self.maxLinesPerGroup = maxLinesPerGroup
             self.maxCharactersPerGroup = maxCharactersPerGroup
+            self.maxAsidesPerGroup = maxAsidesPerGroup
         }
 
         public static let `default` = Options()
@@ -64,6 +68,13 @@ public enum BlockGrouping {
         var current: [TextBlock] = [sorted[0]]
         var currentLength = sorted[0].text.count
 
+        // Blocks that interrupt a paragraph without belonging to it — an icon
+        // in the margin, a badge beside a heading — are set aside rather than
+        // ending the group. Closing on the first stray is what splits a
+        // two-line date across two boxes when a bolt icon happens to sit
+        // between the lines, leaving the second line untranslated on screen.
+        var strays: [TextBlock] = []
+
         for block in sorted.dropFirst() {
             let fits = current.count < options.maxLinesPerGroup
                 && currentLength + block.text.count <= options.maxCharactersPerGroup
@@ -72,12 +83,25 @@ public enum BlockGrouping {
                belongTogether(previous, block, options: options) {
                 current.append(block)
                 currentLength += block.text.count
-            } else {
-                groups.append(current)
-                current = [block]
-                currentLength = block.text.count
+                continue
             }
+
+            // Narrow and clear of the column the paragraph occupies: almost
+            // certainly decoration beside it, not the next paragraph.
+            if !strays.isEmpty || current.count >= 1,
+               isAside(block, from: current, options: options),
+               strays.count < options.maxAsidesPerGroup {
+                strays.append(block)
+                continue
+            }
+
+            groups.append(current)
+            groups.append(contentsOf: strays.map { [$0] })
+            strays.removeAll()
+            current = [block]
+            currentLength = block.text.count
         }
+        groups.append(contentsOf: strays.map { [$0] })
         groups.append(current)
 
         return groups.enumerated().map { index, group in
@@ -91,6 +115,27 @@ public enum BlockGrouping {
                 confidence: confidence
             )
         }
+    }
+
+    /// Whether a block sits beside a paragraph rather than continuing it.
+    ///
+    /// Two conditions, both required: it is appreciably narrower than the
+    /// column, and it barely overlaps that column horizontally. An icon in the
+    /// margin satisfies both; the next paragraph satisfies neither.
+    static func isAside(
+        _ block: TextBlock,
+        from group: [TextBlock],
+        options: Options
+    ) -> Bool {
+        guard let first = group.first else { return false }
+        let column = group.dropFirst().reduce(first.box) { $0.union($1.box) }
+
+        guard column.width > 0, block.box.width < column.width * 0.5 else { return false }
+
+        let overlapStart = Swift.max(column.x, block.box.x)
+        let overlapEnd = Swift.min(column.maxX, block.box.maxX)
+        let overlap = Swift.max(0, overlapEnd - overlapStart)
+        return overlap / block.box.width < 0.5
     }
 
     static func belongTogether(

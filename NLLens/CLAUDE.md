@@ -223,6 +223,27 @@ Note `LabeledSection` is not called `Section`: SwiftUI has one, used throughout
   decoder both use `.iso8601` — mismatched strategies write fine and read back
   empty.
 
+## Overlay rendering has three traps
+
+All three were found by comparing a rendered screen against the original, not
+by reading the code.
+
+- **Never truncate.** `LayoutFitting` approximates character width, and the
+  real font is usually wider, so its answer overflows the box. With a
+  truncating paragraph style that came out as "…" and the reader lost the end
+  of a sentence without being able to tell. `draw` now takes the estimate as an
+  upper bound and shrinks against real `boundingRect` measurement, wraps rather
+  than truncates, and allows a modest overflow before clipping.
+- **Dominant colour, not mean.** A bright green header with black lettering
+  averages to murky dark green, so the fill reads as a stain and the contrast
+  rule then puts white text on it. Background pixels outnumber glyph pixels, so
+  the modal bucket of a small sampled grid is the background.
+- **Grouping steps over asides.** A block that does not belong used to close
+  the group. An icon in the margin, sitting vertically between two lines of a
+  wrapped date, therefore split it — and the second line stayed on screen
+  untranslated beside its own translation. Narrow, off-column blocks are now
+  set aside and kept as their own block; a wide one still starts a new group.
+
 ## Conventions
 
 - The API key lives in the keychain only. Never add a build setting, an

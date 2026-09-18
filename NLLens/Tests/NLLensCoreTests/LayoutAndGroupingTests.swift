@@ -248,3 +248,112 @@ final class BlockGroupingCapTests: XCTestCase {
         }
     }
 }
+
+/// Reproduces the Budget Thuis message screen, where a bolt icon sat in the
+/// margin between the two lines of a wrapped date and split them into separate
+/// boxes — leaving "2026" on screen untranslated beside its own translation.
+final class BlockGroupingAsideTests: XCTestCase {
+
+    private func line(_ id: Int, _ text: String, y: Double, x: Double = 0.14, width: Double = 0.78) -> TextBlock {
+        TextBlock(
+            id: id, text: text,
+            box: BoundingBox(x: x, y: y, width: width, height: 0.022)
+        )
+    }
+
+    /// Narrow, in the left margin, vertically between the two text lines.
+    private func marginIcon(_ id: Int, y: Double) -> TextBlock {
+        TextBlock(
+            id: id, text: "/",
+            box: BoundingBox(x: 0.04, y: y, width: 0.05, height: 0.022)
+        )
+    }
+
+    func testMarginIconDoesNotSplitAWrappedLine() {
+        let blocks = [
+            line(0, "Energie van Budget Thuis • 25 augustus", y: 0.18),
+            marginIcon(1, y: 0.19),
+            line(2, "2026", y: 0.21),
+        ]
+        let grouped = BlockGrouping.group(blocks)
+
+        let joined = grouped.first { $0.text.contains("Budget Thuis") }
+        XCTAssertNotNil(joined)
+        XCTAssertTrue(
+            joined?.text.contains("2026") == true,
+            "the wrapped date must stay one block: got \(grouped.map(\.text))"
+        )
+    }
+
+    func testTheAsideIsStillKeptAsItsOwnBlock() {
+        // Stepping over it must not throw it away.
+        let blocks = [
+            line(0, "Eerste regel tekst", y: 0.18),
+            marginIcon(1, y: 0.19),
+            line(2, "tweede regel tekst", y: 0.21),
+        ]
+        let grouped = BlockGrouping.group(blocks)
+        XCTAssertTrue(
+            grouped.contains { $0.text == "/" },
+            "the icon should survive as its own block"
+        )
+    }
+
+    func testAWideFollowingParagraphStillStartsANewGroup() {
+        // Only narrow, off-column blocks are asides. A real next paragraph is
+        // not one, however close it sits.
+        let blocks = [
+            line(0, "Kop van het bericht", y: 0.18),
+            line(1, "Een heel ander blok ver hieronder", y: 0.62),
+        ]
+        XCTAssertEqual(BlockGrouping.group(blocks).count, 2)
+    }
+
+    func testAsideDetectionRequiresBothNarrowAndOffColumn() {
+        let column = [line(0, "Een regel in de kolom", y: 0.18)]
+        let options = BlockGrouping.Options.default
+
+        // Narrow but sitting inside the column: part of the text, not an aside.
+        let inColumn = TextBlock(
+            id: 1, text: "x",
+            box: BoundingBox(x: 0.3, y: 0.19, width: 0.05, height: 0.022)
+        )
+        XCTAssertFalse(BlockGrouping.isAside(inColumn, from: column, options: options))
+
+        // Narrow and out in the margin: an aside.
+        XCTAssertTrue(BlockGrouping.isAside(marginIcon(2, y: 0.19), from: column, options: options))
+
+        // Wide: never an aside, wherever it sits.
+        let wide = line(3, "Een even brede regel", y: 0.19)
+        XCTAssertFalse(BlockGrouping.isAside(wide, from: column, options: options))
+    }
+
+    func testRunOfAsidesIsBounded() {
+        // A sidebar of icons should not let one paragraph swallow the screen.
+        var blocks = [line(0, "Eerste regel", y: 0.10)]
+        for index in 1...6 {
+            blocks.append(marginIcon(index, y: 0.10 + Double(index) * 0.03))
+        }
+        blocks.append(line(7, "Laatste regel", y: 0.34))
+
+        let grouped = BlockGrouping.group(blocks)
+        XCTAssertFalse(
+            grouped.first?.text.contains("Laatste regel") == true,
+            "six interruptions is a new section, not an aside"
+        )
+    }
+
+    func testNothingIsLostWhenAsidesAreSteppedOver() {
+        let blocks = [
+            line(0, "regel een", y: 0.18),
+            marginIcon(1, y: 0.19),
+            line(2, "regel twee", y: 0.21),
+            marginIcon(3, y: 0.23),
+            line(4, "regel drie", y: 0.25),
+        ]
+        let grouped = BlockGrouping.group(blocks)
+        let words = grouped.flatMap { $0.text.split(separator: " ") }.count
+        let original = blocks.flatMap { $0.text.split(separator: " ") }.count
+        XCTAssertEqual(words, original, "stepping over an aside must not drop it")
+    }
+}
