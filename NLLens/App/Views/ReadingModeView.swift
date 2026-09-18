@@ -26,8 +26,8 @@ struct ReadingModeView: View {
                     row(for: block, role: roles[block.id] ?? .body)
                 }
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 16)
+            .padding(.horizontal, Theme.Space.page)
+            .padding(.vertical, Theme.Space.l)
             .textSelection(.enabled)
         }
         .background(Color(.systemBackground))
@@ -35,10 +35,10 @@ struct ReadingModeView: View {
 
     @ViewBuilder
     private func row(for block: TranslatedBlock, role: TextRole) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: Theme.Space.hair + 1) {
             if showSource, block.sourceText != block.translatedText {
                 Text(block.sourceText)
-                    .font(.caption2)
+                    .font(Theme.Typeface.caption)
                     .foregroundStyle(.tertiary)
             }
 
@@ -66,9 +66,9 @@ struct ReadingModeView: View {
     /// Space above a run, so headings separate sections instead of running on.
     private func topPadding(for role: TextRole) -> CGFloat {
         switch role {
-        case .heading: return 20
-        case .body: return 8
-        case .caption: return 6
+        case .heading: return Theme.Space.xl - Theme.Space.xs
+        case .body: return Theme.Space.s
+        case .caption: return Theme.Space.xs + 2
         }
     }
 }

@@ -193,6 +193,36 @@ a reason better than tidiness.
 
 `CompletenessTests` and `BlockGroupingCapTests` pin all of this.
 
+## The app is built on a design system
+
+`App/Design/Theme.swift` holds spacing, radii, palette, type and motion. Views
+draw from it rather than reaching for literals — a view with a bare `16` in it
+is one that will drift. `LabeledSection`, `cardSurface`, `pill` and
+`floatingControl` are the shared building blocks; prefer them to re-rolling the
+same padding-and-material stack.
+
+Note `LabeledSection` is not called `Section`: SwiftUI has one, used throughout
+`Form` and `List`, and a same-named type in this module shadows it everywhere.
+
+## Chat, terms, risk and the archive
+
+- `ScreenConversation` keeps the screen in the **system message**, never the
+  turns. A vision model reads the screenshot once; every turn after is
+  text-only. Do not "simplify" this by re-sending the image per turn.
+- `DutchTermIndex` matches on **word runs, not substrings** — Dutch compounds
+  put "borg" inside "borgstelling". Meanings carry no amounts: they change
+  yearly, and `testMeaningsCarryNoHardCodedAmounts` enforces it.
+- `RiskAssessment.Level.parse` resolves unknown words to `.caution`, never
+  `.fine`. An unrecognised answer is not evidence of safety. A failed check
+  shows nothing rather than implying the screen is clean.
+- Chat redacts the screen text, the visual reading and every message under one
+  shared namespace, so one IBAN is one placeholder rather than two accounts.
+- The archive files a screen on **arrival** in the viewer, not on exit, so it
+  survives the app being killed mid-read. Reopening from History passes
+  `archivable: false` so revisiting does not file a duplicate. Its encoder and
+  decoder both use `.iso8601` — mismatched strategies write fine and read back
+  empty.
+
 ## Conventions
 
 - The API key lives in the keychain only. Never add a build setting, an

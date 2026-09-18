@@ -17,7 +17,7 @@ struct ExplanationView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: Theme.Space.xl) {
                 if isLoading {
                     loading
                 } else if let errorMessage {
@@ -32,27 +32,27 @@ struct ExplanationView: View {
                     content
                 }
             }
-            .padding(20)
+            .padding(Theme.Space.page)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(Color(.systemBackground))
     }
 
     private var loading: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: Theme.Space.m + 2) {
             ProgressView()
             Text("Reading the screen…")
-                .font(.callout)
+                .font(Theme.Typeface.detail)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, 60)
+        .padding(.top, Theme.Space.xxl * 2)
     }
 
     private func failure(_ message: String) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: Theme.Space.m + 2) {
             Label(message, systemImage: "exclamationmark.triangle")
-                .font(.callout)
+                .font(Theme.Typeface.detail)
                 .foregroundStyle(.orange)
             Button("Try again", action: onRetry)
                 .buttonStyle(.borderedProminent)
@@ -64,16 +64,16 @@ struct ExplanationView: View {
     private var content: some View {
         if !explanation.summary.isEmpty {
             Text(explanation.summary)
-                .font(.title3.weight(.semibold))
+                .font(Theme.Typeface.title)
                 .fixedSize(horizontal: false, vertical: true)
         }
 
         // Warnings before actions: the point is to see the cost before you
         // start following the steps that commit you to it.
         if !explanation.warnings.isEmpty {
-            section("Watch out", systemImage: "exclamationmark.triangle.fill", tint: .orange) {
+            LabeledSection(title: "Watch out", systemImage: "exclamationmark.triangle.fill", tint: .orange) {
                 ForEach(Array(explanation.warnings.enumerated()), id: \.offset) { _, warning in
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s + 2) {
                         Circle()
                             .fill(.orange)
                             .frame(width: 6, height: 6)
@@ -86,9 +86,9 @@ struct ExplanationView: View {
         }
 
         if !explanation.actions.isEmpty {
-            section("What to do", systemImage: "list.number", tint: .accentColor) {
+            LabeledSection(title: "What to do", systemImage: "list.number", tint: Theme.Palette.accent) {
                 ForEach(Array(explanation.actions.enumerated()), id: \.offset) { index, action in
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s + 2) {
                         Text("\(index + 1)")
                             .font(.caption.weight(.semibold))
                             .monospacedDigit()
@@ -102,27 +102,8 @@ struct ExplanationView: View {
         }
 
         Text("An explanation is a reading of the screen, not legal or financial advice. Check anything that costs money.")
-            .font(.caption2)
+            .font(Theme.Typeface.caption)
             .foregroundStyle(.tertiary)
-            .padding(.top, 4)
-    }
-
-    @ViewBuilder
-    private func section<Content: View>(
-        _ title: String,
-        systemImage: String,
-        tint: Color,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label(title, systemImage: systemImage)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(tint)
-            VStack(alignment: .leading, spacing: 10) {
-                content()
-            }
-            .font(.body)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, Theme.Space.xs)
     }
 }

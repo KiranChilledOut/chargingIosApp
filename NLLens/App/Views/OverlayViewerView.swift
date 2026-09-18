@@ -16,13 +16,14 @@ import NLLensCore
 struct OverlayViewerView: View {
 
     enum Mode: Hashable {
-        case image, reading, explain
+        case image, reading, explain, chat
 
         var symbol: String {
             switch self {
             case .image: return "photo"
             case .reading: return "text.alignleft"
-            case .explain: return "questionmark.bubble"
+            case .explain: return "lightbulb"
+            case .chat: return "bubble.left.and.text.bubble.right"
             }
         }
 
@@ -31,12 +32,16 @@ struct OverlayViewerView: View {
             case .image: return "Show the screen"
             case .reading: return "Read as text"
             case .explain: return "Explain this screen"
+            case .chat: return "Ask about this screen"
             }
         }
     }
 
     let snapshot: LastResultStore.Snapshot
     var onDismiss: () -> Void
+    /// False when reopening something already in the archive, so revisiting a
+    /// screen does not file a second copy of it.
+    var archivable: Bool = true
 
     @State private var mode: Mode
     /// Local copy so a correction shows immediately, without a round trip.
@@ -49,6 +54,10 @@ struct OverlayViewerView: View {
     @State private var isExplaining = false
     @State private var explainError: String?
     @State private var chromeHideTask: Task<Void, Never>?
+    @StateObject private var chat: ChatSession
+    @State private var risk: RiskAssessment?
+    @State private var riskExpanded = false
+    @State private var archiveID: UUID?
 
     @State private var scale: CGFloat = 1
     @State private var committedScale: CGFloat = 1
@@ -57,11 +66,17 @@ struct OverlayViewerView: View {
 
     private let settings = AppEnvironment.shared.settings
 
-    init(snapshot: LastResultStore.Snapshot, onDismiss: @escaping () -> Void) {
+    init(
+        snapshot: LastResultStore.Snapshot,
+        archivable: Bool = true,
+        onDismiss: @escaping () -> Void
+    ) {
         self.snapshot = snapshot
+        self.archivable = archivable
         self.onDismiss = onDismiss
         _mode = State(initialValue: snapshot.isMultiScreen ? .reading : .image)
         _blocks = State(initialValue: snapshot.pairs)
+        _chat = StateObject(wrappedValue: ChatSession(snapshot: snapshot))
     }
 
     private var image: UIImage? {
@@ -100,6 +115,15 @@ struct OverlayViewerView: View {
                         onRetry: { Task { await explainScreen(force: true) } }
                     )
                 }
+            case .chat:
+                VStack(spacing: 0) {
+                    chromeBar
+                    ChatView(session: chat)
+                }
+            }
+
+            if let risk, risk.isWorthSurfacing {
+                RiskBanner(assessment: risk, expanded: $riskExpanded)
             }
         }
         .statusBarHidden(mode == .image)
@@ -107,6 +131,11 @@ struct OverlayViewerView: View {
             // Requested lazily: it costs a vision call, so it should only
             // happen when the tab is actually opened.
             if mode == .explain { await explainScreen() }
+        }
+        .task {
+            // Not lazy, unlike explain: a scam check you have to go looking
+            // for is one you will not run on the screen that needed it.
+            await assessRisk()
         }
         .animation(.easeInOut(duration: 0.15), value: showingOriginal)
         .animation(.easeInOut(duration: 0.2), value: mode)
@@ -123,8 +152,19 @@ struct OverlayViewerView: View {
             // the confirmation is for a translation that is done, not starting.
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             scheduleChromeHide()
+
+            // Filed on arrival rather than on the way out, so a screen
+            // survives the app being killed while you are still reading it.
+            if archivable, archiveID == nil {
+                archiveID = ArchiveStore.save(snapshot: snapshot)?.id
+            }
         }
-        .onDisappear { chromeHideTask?.cancel() }
+        .onDisappear {
+            chromeHideTask?.cancel()
+            if let archiveID, !chat.isEmpty {
+                ArchiveStore.update(id: archiveID, conversation: chat.conversation)
+            }
+        }
         .onChange(of: mode) { _, _ in
             // Reading and explain keep their bar; only the image gets out of
             // the way. Coming back to it, show the controls then fade them.
@@ -189,12 +229,9 @@ struct OverlayViewerView: View {
             chromeBar
             Spacer()
             Text(hintText)
-                .font(.caption)
-                .foregroundStyle(.white.opacity(0.85))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(.ultraThinMaterial, in: Capsule())
-                .padding(.bottom, 24)
+                .foregroundStyle(.white.opacity(0.9))
+                .pill(tint: .white)
+                .padding(.bottom, Theme.Space.xl)
         }
     }
 
@@ -275,6 +312,8 @@ struct OverlayViewerView: View {
         modes.append(.reading)
         // Explaining needs the untranslated screen to send to a vision model.
         if snapshot.originalImage != nil { modes.append(.explain) }
+        // Chat needs only the text, so it is always available.
+        modes.append(.chat)
         return modes
     }
 
@@ -287,8 +326,7 @@ struct OverlayViewerView: View {
             Image(systemName: symbol)
                 .font(.headline)
                 .frame(width: 20, height: 20)
-                .padding(10)
-                .background(.ultraThinMaterial, in: Circle())
+                .floatingControl()
         }
         .accessibilityLabel(label)
     }
@@ -355,17 +393,48 @@ struct OverlayViewerView: View {
         do {
             let environment = AppEnvironment.shared
             let pipeline = await environment.pipeline()
-            explanation = try await pipeline.explain(
+            let result = try await pipeline.explain(
                 imageBase64: jpeg.base64EncodedString(),
                 mimeType: "image/jpeg",
                 visionModel: environment.visionModel
             )
+            explanation = result
+            // Later chat turns inherit this reading instead of re-sending the
+            // image, which is what keeps a conversation cheap.
+            chat.adopt(explanation: result)
         } catch PipelineError.cloudDisabled {
             explainError = "Cloud is off. Explaining a screen needs the vision model."
         } catch let error as NebiusError {
             explainError = error.userMessage
         } catch {
             explainError = error.localizedDescription
+        }
+    }
+
+    /// Checks the screen for phishing signals, once per viewing.
+    private func assessRisk() async {
+        guard settings.riskCheckEnabled, risk == nil else { return }
+        guard let original = snapshot.originalImage,
+              let jpeg = original.jpegData(compressionQuality: 0.55) else { return }
+
+        do {
+            let environment = AppEnvironment.shared
+            let pipeline = await environment.pipeline()
+            let assessment = try await pipeline.assessRisk(
+                imageBase64: jpeg.base64EncodedString(),
+                visionModel: environment.visionModel
+            )
+            risk = assessment
+
+            if assessment.isWorthSurfacing {
+                UINotificationFeedbackGenerator().notificationOccurred(
+                    assessment.level == .danger ? .error : .warning
+                )
+            }
+        } catch {
+            // A failed check must never read as "this screen is fine", so it
+            // stays silent rather than showing anything.
+            risk = nil
         }
     }
 

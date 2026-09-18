@@ -53,6 +53,12 @@ public struct AppSettings: Sendable, Equatable, Codable {
     public var cacheEnabled: Bool
     /// Show repaired Dutch beside the English, for learning.
     public var showSourceText: Bool
+    /// Check captured screens for phishing signals automatically.
+    ///
+    /// On by default and automatic on purpose: a scam check you have to
+    /// remember to ask for is one you will not run on the screen that needed
+    /// it. It costs one extra vision call per capture.
+    public var riskCheckEnabled: Bool
     public var defaultRegister: Register
 
     public init(
@@ -60,12 +66,14 @@ public struct AppSettings: Sendable, Equatable, Codable {
         redactionPolicyIsStrict: Bool = false,
         cacheEnabled: Bool = true,
         showSourceText: Bool = false,
+        riskCheckEnabled: Bool = true,
         defaultRegister: Register = .formal
     ) {
         self.cloudEnabled = cloudEnabled
         self.redactionPolicyIsStrict = redactionPolicyIsStrict
         self.cacheEnabled = cacheEnabled
         self.showSourceText = showSourceText
+        self.riskCheckEnabled = riskCheckEnabled
         self.defaultRegister = defaultRegister
     }
 

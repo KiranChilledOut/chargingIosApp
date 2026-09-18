@@ -52,6 +52,14 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Toggle("Check screens for scams", isOn: $settings.riskCheckEnabled)
+                } header: {
+                    Text("Safety")
+                } footer: {
+                    Text("Looks for phishing signals — password requests, urgency, mismatched web addresses — and warns you only when something looks wrong. Costs one extra request per screen.")
+                }
+
+                Section {
                     if availableModels.isEmpty {
                         LabeledContent("Text model", value: textModel)
                             .lineLimit(1)

@@ -14,7 +14,7 @@ struct RootView: View {
     @StateObject private var presenter = OverlayPresenter.shared
 
     enum Tab: Hashable {
-        case screen, write, glossary, settings
+        case screen, history, write, glossary, settings
     }
 
     var body: some View {
@@ -22,6 +22,10 @@ struct RootView: View {
             ReviewView()
                 .tabItem { Label("Screen", systemImage: "text.viewfinder") }
                 .tag(Tab.screen)
+
+            HistoryView()
+                .tabItem { Label("History", systemImage: "clock.arrow.circlepath") }
+                .tag(Tab.history)
 
             ComposeView()
                 .tabItem { Label("Write", systemImage: "pencil.and.outline") }

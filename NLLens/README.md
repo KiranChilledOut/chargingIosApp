@@ -196,6 +196,7 @@ swift test
 | Tab | What it's for |
 |---|---|
 | **Screen** | The last translated screen, with every line correctable. |
+| **History** | Every screen you've translated, searchable in English. |
 | **Write** | English → Dutch with a tone control (`u` vs `je`), copied ready to paste. |
 | **Glossary** | Everything learned so far, searchable and editable. |
 | **Settings** | Key, models, privacy switches. |
@@ -211,6 +212,10 @@ It has three modes, picked from the control top-right:
   Dynamic Type, scrolls past the bottom of the capture, and copies out whole.
   Right for prose. Headings are recovered from how tall each line was on
   screen, so a long page keeps its structure instead of becoming a wall.
+- **Ask** — a conversation about the screen. If the answer depends on your
+  situation it asks first: *"do you rent or own?"* — then commits to an answer
+  and quotes the Dutch it rests on. A one-shot explanation can say what a
+  checkbox is about; it can't say whether to tick it.
 - **Explain** — what the screen is *asking*, rather than what it says. Which
   field wants your BSN, which box is pre-ticked, what renews monthly, what the
   deadline is. Warnings come before steps, because the point is to see the cost
@@ -226,6 +231,32 @@ it only runs when you actually open that tab.
 fix it, and it is *pinned*: it outranks the model from then on, is served
 instantly and offline, and never costs a token again. Fix a bad label once
 instead of re-reading it wrong forever.
+
+## What it knows that a translator doesn't
+
+Dutch bureaucratic terms translate into English that's correct and useless:
+
+| Dutch | Literal | What you're actually told |
+|---|---|---|
+| *eigen risico* | "own risk" | Your insurance deductible — the fixed yearly amount you pay before cover starts |
+| *loonheffingskorting* | "payroll tax credit" | Apply it at **one** employer only; two is why people owe tax back |
+| *WOZ-waarde* | "WOZ value" | The council's valuation of your home, which several taxes are based on |
+
+Forty terms across tax, benefits, health, housing, banking, work and identity,
+matched against the Dutch on screen and fed to the model before it answers.
+Amounts are deliberately absent — they change yearly, and a stale number is
+worse than none.
+
+## Scam checking
+
+Someone who can't read a language also can't hear when its register is wrong,
+which is how native speakers spot phishing in a second. Captured screens are
+checked for password requests, manufactured urgency, mismatched web addresses
+and payment redirection, and a banner appears **only when something looks
+wrong**. An ordinary screen says nothing — a badge on every screen is one
+nobody reads.
+
+Turn it off in Settings if you'd rather not spend the extra request.
 
 ## Cost
 
