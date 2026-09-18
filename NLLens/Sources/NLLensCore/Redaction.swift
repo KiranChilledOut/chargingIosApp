@@ -132,6 +132,30 @@ public enum Redactor {
         return (redacted, map)
     }
 
+    /// Masks several strings under one placeholder namespace.
+    ///
+    /// Sharing the namespace matters for a conversation: the same IBAN in the
+    /// screen text and in something the user typed has to become the same
+    /// token, or the model sees two different accounts where there is one.
+    public static func redact(
+        texts: [String],
+        policy: Policy = .standard
+    ) -> (texts: [String], map: RedactionMap) {
+        guard !policy.kinds.isEmpty else { return (texts, RedactionMap()) }
+
+        var map = RedactionMap()
+        var assigned: [String: String] = [:]
+        var counter = 0
+
+        let out = texts.map { text in
+            redact(
+                text: text, policy: policy, assigned: &assigned,
+                counter: &counter, map: &map
+            )
+        }
+        return (out, map)
+    }
+
     /// Masks a single string. Exposed for the compose path, which has no blocks.
     public static func redact(
         text: String,

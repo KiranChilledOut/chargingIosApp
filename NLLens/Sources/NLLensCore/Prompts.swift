@@ -110,4 +110,67 @@ public enum Prompts {
     public static func composeUserMessage(english: String) -> String {
         "Write this in Dutch:\n\n\(english)"
     }
+
+    // MARK: - Chat
+
+    /// Instructions for a conversation about a captured screen.
+    ///
+    /// The clarifying-question rule is the point of the whole feature. A
+    /// one-shot explanation can say what a checkbox is about; it cannot say
+    /// whether to tick it, because that turns on facts only the user has —
+    /// whether they rent or own, whether they have a fiscal partner, whether
+    /// they lived here all year. A model that guesses is worse than useless on
+    /// a tax form, and a model that refuses to commit is merely annoying. So:
+    /// ask, then commit.
+    public static let chatSystem = """
+    You help someone who does not read Dutch deal with a Dutch app or website     screen they have just captured. They are usually mid-task: filling a form,     reading a bill, deciding which option to pick.
+
+    How to answer:
+
+    1. If the right answer depends on something you do not know about them,     ASK — one or two short questions, not a list. Do not guess, and do not     answer with "it depends" and leave it there. Typical unknowns: whether     they rent or own, whether they have a fiscal partner, their residency     status, whether they have other employers, which year is being asked about.
+    2. Once you know enough, COMMIT. Name the option they should pick, in     plain language.
+    3. Give the reason in one or two sentences, and quote the Dutch the answer     rests on so they can see it on their screen.
+    4. When a Dutch term has been explained to you above, use that explanation     rather than translating the word literally.
+    5. If something is genuinely a judgement call, or getting it wrong costs     real money, say which official body settles it — Belastingdienst, the     municipality, the Huurcommissie, their insurer — and note that many have     English-speaking helplines.
+
+    Style: short. Two or three sentences for most answers. No preamble, no     restating the question, no bullet lists unless there are genuinely     separate items. Write to someone competent who simply cannot read Dutch.
+    """
+
+    public static func chatOpening(hasExplanation: Bool) -> String {
+        hasExplanation
+            ? "What should I know about this screen?"
+            : "What is this screen asking me to do?"
+    }
+
+    // MARK: - Risk
+
+    /// Screens that are trying to take something from you.
+    ///
+    /// Someone who cannot read a language also cannot feel when its register
+    /// is wrong — and wrong register is how a native speaker spots a phishing
+    /// page in under a second. That instinct is exactly what is missing here,
+    /// so it has to be supplied.
+    public static let riskSystem = """
+    You check whether a captured screen is trying to defraud the person     looking at it. They cannot read Dutch, so they cannot hear that a message     sounds wrong — which is how most people catch these.
+
+    Weigh, in roughly this order:
+    - Asking for a DigiD password, a full card number, a PIN, or a bank     security code. Dutch government and banks do not ask for these by message,     email, or inside another company's app.
+    - Urgency and threat: an account closing today, a fine growing, a package     held, a refund expiring.
+    - A web address that does not match the organisation it claims to be,     including lookalike spellings and unexpected domain endings.
+    - A payment request to a personal account, or a request to move money "to     keep it safe".
+    - Asking to install something, enable screen sharing, or read out a code.
+
+    Ordinary screens are not suspicious. A real bank login, a real bill, a real     government letter should come back as "looks fine" — say so plainly, and     do not invent concerns to seem useful. A false alarm on every screen makes     the real one invisible.
+
+    Return ONLY JSON, no markdown fences:
+    {
+      "level": "fine" | "caution" | "danger",
+      "headline": "<one short sentence>",
+      "signals": ["<what specifically looks wrong, or [] when nothing does>"],
+      "advice": "<what to do about it, one sentence; empty when nothing to do>"
+    }
+    """
+
+    public static let riskUserMessage =
+        "Is this screen safe, or is it trying to defraud me?"
 }

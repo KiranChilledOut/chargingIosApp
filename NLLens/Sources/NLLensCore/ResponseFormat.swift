@@ -113,6 +113,19 @@ public enum Schemas {
         "additionalProperties": false,
     ]
 
+    /// `{level, headline, signals[], advice}` — the risk path.
+    public static let riskAssessment: JSONValue = [
+        "type": "object",
+        "properties": [
+            "level": ["type": "string", "enum": ["fine", "caution", "danger"]],
+            "headline": ["type": "string"],
+            "signals": ["type": "array", "items": ["type": "string"]],
+            "advice": ["type": "string"],
+        ],
+        "required": ["level", "headline", "signals", "advice"],
+        "additionalProperties": false,
+    ]
+
     /// `{dutch, notes[]}` — the compose path.
     public static let composeResult: JSONValue = [
         "type": "object",

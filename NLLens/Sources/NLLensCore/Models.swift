@@ -133,11 +133,11 @@ public struct ScreenExplanation: Codable, Hashable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
-        summary = Self.firstString(
+        summary = Lenient.string(
             in: container, forKeys: [.summary, .title, .explanation]
         ) ?? ""
-        actions = Self.stringList(in: container, forKey: .actions)
-        warnings = Self.stringList(in: container, forKey: .warnings)
+        actions = Lenient.stringList(in: container, forKey: .actions)
+        warnings = Lenient.stringList(in: container, forKey: .warnings)
     }
 
     enum CodingKeys: String, CodingKey {
@@ -153,45 +153,6 @@ public struct ScreenExplanation: Codable, Hashable, Sendable {
         try container.encode(summary, forKey: .summary)
         try container.encode(actions, forKey: .actions)
         try container.encode(warnings, forKey: .warnings)
-    }
-
-    /// Reads a string that may have arrived as an array of strings.
-    private static func firstString(
-        in container: KeyedDecodingContainer<CodingKeys>,
-        forKeys keys: [CodingKeys]
-    ) -> String? {
-        for key in keys {
-            if let value = try? container.decode(String.self, forKey: key),
-               !value.isEmpty {
-                return value
-            }
-            if let values = try? container.decode([String].self, forKey: key),
-               !values.isEmpty {
-                return values.joined(separator: " ")
-            }
-        }
-        return nil
-    }
-
-    /// Reads a list that may have arrived as a bare string, as objects, or
-    /// not at all.
-    private static func stringList(
-        in container: KeyedDecodingContainer<CodingKeys>,
-        forKey key: CodingKeys
-    ) -> [String] {
-        if let values = try? container.decode([String].self, forKey: key) {
-            return values.filter { !$0.isEmpty }
-        }
-        if let single = try? container.decode(String.self, forKey: key) {
-            return single.isEmpty ? [] : [single]
-        }
-        if let objects = try? container.decode([[String: String]].self, forKey: key) {
-            return objects.compactMap { object in
-                object["text"] ?? object["action"] ?? object["warning"]
-                    ?? object["description"] ?? object.values.first
-            }.filter { !$0.isEmpty }
-        }
-        return []
     }
 
     /// True when the model returned nothing usable, so the caller can say so

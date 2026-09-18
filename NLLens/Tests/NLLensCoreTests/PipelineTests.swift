@@ -310,3 +310,119 @@ final class CompletenessTests: XCTestCase {
         )
     }
 }
+
+final class ChatPipelineTests: XCTestCase {
+
+    private func pipeline(
+        _ transport: MockTransport,
+        settings: AppSettings = .default
+    ) -> TranslationPipeline {
+        TranslationPipeline(
+            client: .test(transport: transport), cache: nil,
+            settings: settings, textModel: "test/text-model"
+        )
+    }
+
+    func testAnswerReturnsTheReply() async throws {
+        let transport = MockTransport(completion: "Pick option B — you rent, so the mortgage box does not apply.")
+        var conversation = ScreenConversation(screenText: "Belastingdienst form")
+        conversation.append(role: .user, text: "Which box do I tick?")
+
+        let reply = try await pipeline(transport).answer(in: conversation)
+        XCTAssertTrue(reply.contains("option B"))
+    }
+
+    func testScreenTextIsRedactedBeforeSending() async throws {
+        let transport = MockTransport(completion: "ok")
+        var conversation = ScreenConversation(
+            screenText: "Account NL91ABNA0417164300 has a balance"
+        )
+        conversation.append(role: .user, text: "Whose account is this?")
+
+        _ = try await pipeline(transport).answer(in: conversation)
+        let body = transport.recordedBodies().joined()
+        XCTAssertFalse(
+            body.contains("NL91ABNA0417164300"),
+            "the screen's IBAN must never reach the model"
+        )
+        XCTAssertTrue(body.contains("[[R1]]"))
+    }
+
+    func testWhatTheUserTypesIsRedactedToo() async throws {
+        let transport = MockTransport(completion: "ok")
+        var conversation = ScreenConversation(screenText: "A form")
+        conversation.append(role: .user, text: "My BSN is 123456782, is that right?")
+
+        _ = try await pipeline(transport).answer(in: conversation)
+        XCTAssertFalse(transport.recordedBodies().joined().contains("123456782"))
+    }
+
+    func testTheSameValueSharesOnePlaceholderAcrossScreenAndMessage() async throws {
+        // Otherwise the model sees two different accounts where there is one.
+        let transport = MockTransport(completion: "ok")
+        var conversation = ScreenConversation(
+            screenText: "Transfer to NL91ABNA0417164300"
+        )
+        conversation.append(role: .user, text: "Is NL91ABNA0417164300 my account?")
+
+        _ = try await pipeline(transport).answer(in: conversation)
+        let body = transport.recordedBodies().joined()
+        XCTAssertFalse(body.contains("NL91ABNA0417164300"))
+        XCTAssertFalse(body.contains("[[R2]]"), "one value should be one placeholder")
+    }
+
+    func testPlaceholdersAreRestoredInTheReply() async throws {
+        let transport = MockTransport(completion: "Yes, [[R1]] is the account shown.")
+        var conversation = ScreenConversation(screenText: "Account NL91ABNA0417164300")
+        conversation.append(role: .user, text: "Which account?")
+
+        let reply = try await pipeline(transport).answer(in: conversation)
+        XCTAssertEqual(reply, "Yes, NL91ABNA0417164300 is the account shown.")
+    }
+
+    func testCloudDisabledBlocksChatEntirely() async {
+        var settings = AppSettings.default
+        settings.cloudEnabled = false
+        let transport = MockTransport(stubs: [])
+
+        var conversation = ScreenConversation(screenText: "x")
+        conversation.append(role: .user, text: "hi")
+
+        do {
+            _ = try await pipeline(transport, settings: settings).answer(in: conversation)
+            XCTFail("expected cloudDisabled")
+        } catch let error as PipelineError {
+            XCTAssertEqual(error, .cloudDisabled)
+        } catch {
+            XCTFail("wrong error: \(error)")
+        }
+        XCTAssertEqual(transport.requestCount, 0)
+    }
+
+    func testTermGroundingReachesTheModel() async throws {
+        let transport = MockTransport(completion: "ok")
+        var conversation = ScreenConversation(
+            screenText: "Uw eigen risico",
+            termGrounding: DutchTermIndex.grounding(for: "Uw eigen risico voor dit jaar")
+        )
+        conversation.append(role: .user, text: "What is that?")
+
+        _ = try await pipeline(transport).answer(in: conversation)
+        let body = transport.recordedBodies().joined()
+        XCTAssertTrue(
+            body.lowercased().contains("deductible"),
+            "the model should be told what the term means, not left to translate it"
+        )
+    }
+
+    func testRiskAssessmentSendsTheImage() async throws {
+        let transport = MockTransport(
+            completion: #"{"level":"danger","headline":"Fake page","signals":["Asks for DigiD password"],"advice":"Close it."}"#
+        )
+        let result = try await pipeline(transport).assessRisk(
+            imageBase64: "QUJD", visionModel: "test/vision-model"
+        )
+        XCTAssertEqual(result.level, .danger)
+        XCTAssertTrue(transport.recordedBodies().joined().contains("data:image/jpeg;base64,QUJD"))
+    }
+}

@@ -218,6 +218,69 @@ public struct TranslationPipeline: Sendable {
         return try JSONExtraction.decode(ScreenExplanation.self, from: raw)
     }
 
+    // MARK: - Chat
+
+    /// Answers the next turn of a conversation about a captured screen.
+    ///
+    /// Everything the model sees goes through redaction first — the screen
+    /// text, the visual reading and every message — under one shared
+    /// namespace, so an IBAN that appears both on screen and in something the
+    /// user typed maps to the same token rather than looking like two
+    /// accounts. The reply is restored on the way back.
+    public func answer(in conversation: ScreenConversation) async throws -> String {
+        guard settings.cloudEnabled else { throw PipelineError.cloudDisabled }
+
+        let history = conversation.recentHistory()
+        let (safe, map) = Redactor.redact(
+            texts: [conversation.screenText, conversation.visualReading]
+                + history.map(\.text),
+            policy: settings.redactionPolicy
+        )
+
+        var safeConversation = conversation
+        safeConversation.screenText = safe[0]
+        safeConversation.visualReading = safe[1]
+        safeConversation.messages = zip(history, safe.dropFirst(2)).map { message, text in
+            var copy = message
+            copy.text = text
+            return copy
+        }
+
+        let raw = try await client.complete(
+            messages: safeConversation.requestMessages(instructions: Prompts.chatSystem),
+            model: textModel,
+            temperature: 0.3,
+            maxTokens: 900
+        )
+        return map.restore(in: raw)
+    }
+
+    // MARK: - Risk
+
+    /// Checks whether a screen is trying to defraud the person reading it.
+    public func assessRisk(
+        imageBase64: String,
+        mimeType: String = "image/jpeg",
+        visionModel: String
+    ) async throws -> RiskAssessment {
+        guard settings.cloudEnabled else { throw PipelineError.cloudDisabled }
+
+        let raw = try await client.complete(
+            messages: [
+                .system(Prompts.riskSystem),
+                ChatMessage(role: .user, content: [
+                    .imageBase64(imageBase64, mimeType: mimeType),
+                    .text(Prompts.riskUserMessage),
+                ]),
+            ],
+            model: visionModel,
+            temperature: 0.1,
+            maxTokens: 700,
+            responseFormat: .jsonSchema(Schemas.riskAssessment)
+        )
+        return try JSONExtraction.decode(RiskAssessment.self, from: raw)
+    }
+
     // MARK: - Compose
 
     public func compose(
