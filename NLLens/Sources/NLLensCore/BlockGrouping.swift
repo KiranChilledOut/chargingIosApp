@@ -44,6 +44,13 @@ public enum BlockGrouping {
 
     /// Groups blocks into paragraphs, preserving reading order.
     ///
+    /// A group's union box is what gets painted over on the rendered screen,
+    /// so it must never grow to enclose a block outside the group. On a
+    /// label/value layout the labels sit in a left column and read exactly
+    /// like a paragraph — merging two of them produces a box spanning the full
+    /// width, which then paints over the values on the right and destroys
+    /// them. `wouldSwallowOutsider` is the guard.
+    ///
     /// Groups are capped in both lines and characters. Without a cap a page of
     /// prose merges into a single block, which then rides on one translation
     /// unit — and a model handed one very long string will paraphrase or
@@ -80,7 +87,8 @@ public enum BlockGrouping {
                 && currentLength + block.text.count <= options.maxCharactersPerGroup
 
             if fits, let previous = current.last,
-               belongTogether(previous, block, options: options) {
+               belongTogether(previous, block, options: options),
+               !wouldSwallowOutsider(current + [block], among: sorted) {
                 current.append(block)
                 currentLength += block.text.count
                 continue
@@ -117,6 +125,36 @@ public enum BlockGrouping {
         }
     }
 
+    /// Whether merging these blocks would produce a box enclosing something
+    /// that is not one of them.
+    ///
+    /// This is what keeps a column of labels from merging on a rates screen:
+    /// two stacked labels union into a band spanning the whole row, and the
+    /// amounts to their right fall inside it. Painting that band over the
+    /// screen would erase the numbers, which is worse than any layout gain
+    /// from merging.
+    static func wouldSwallowOutsider(_ group: [TextBlock], among all: [TextBlock]) -> Bool {
+        guard let first = group.first, group.count > 1 else { return false }
+        let union = group.dropFirst().reduce(first.box) { $0.union($1.box) }
+        let members = Set(group.map(\.id))
+
+        for block in all where !members.contains(block.id) {
+            let overlapX = Swift.max(
+                0, Swift.min(union.maxX, block.box.maxX) - Swift.max(union.x, block.box.x)
+            )
+            let overlapY = Swift.max(
+                0, Swift.min(union.maxY, block.box.maxY) - Swift.max(union.y, block.box.y)
+            )
+            let area = block.box.width * block.box.height
+            guard area > 0 else { continue }
+
+            // More than half of an outsider inside the union means the paint
+            // would cover it.
+            if (overlapX * overlapY) / area > 0.5 { return true }
+        }
+        return false
+    }
+
     /// Whether a block sits beside a paragraph rather than continuing it.
     ///
     /// Two conditions, both required: it is appreciably narrower than the
@@ -143,6 +181,14 @@ public enum BlockGrouping {
         _ second: TextBlock,
         options: Options
     ) -> Bool {
+        // A line ending in a colon is a label, complete in itself. On a rates
+        // or contract screen the labels stack in a left column and read
+        // exactly like a paragraph, so without this they merge into one run
+        // and the screen's structure is lost.
+        if first.text.trimmingCharacters(in: .whitespaces).hasSuffix(":") {
+            return false
+        }
+
         let a = first.box
         let b = second.box
 

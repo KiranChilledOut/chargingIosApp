@@ -357,3 +357,177 @@ final class BlockGroupingAsideTests: XCTestCase {
         XCTAssertEqual(words, original, "stepping over an aside must not drop it")
     }
 }
+
+/// Reproduces the Budget Thuis rates screen, where stacked labels merged with
+/// the footnote below them into one band spanning the full row — which then
+/// painted over the amounts on the right and erased them.
+final class BlockGroupingLabelValueTests: XCTestCase {
+
+    private func label(_ id: Int, _ text: String, y: Double) -> TextBlock {
+        TextBlock(id: id, text: text, box: BoundingBox(x: 0.08, y: y, width: 0.50, height: 0.03))
+    }
+
+    private func amount(_ id: Int, _ text: String, y: Double) -> TextBlock {
+        TextBlock(id: id, text: text, box: BoundingBox(x: 0.78, y: y, width: 0.15, height: 0.03))
+    }
+
+    private func footnote(_ id: Int, y: Double) -> TextBlock {
+        TextBlock(
+            id: id,
+            text: "Bovenstaande tarieven zijn inclusief energiebelasting en btw.",
+            box: BoundingBox(x: 0.08, y: y, width: 0.85, height: 0.05)
+        )
+    }
+
+    private var ratesScreen: [TextBlock] {
+        [
+            label(0, "Vaste leveringskosten stroom:", y: 0.70),
+            amount(1, "€ 9,99", y: 0.70),
+            label(2, "Vaste leveringskosten gas:", y: 0.745),
+            amount(3, "€ 8,99", y: 0.745),
+            footnote(4, y: 0.79),
+        ]
+    }
+
+    func testAmountsAreNeverEnclosedByAMergedGroup() {
+        // The actual damage: a box covering the amounts paints over them.
+        let grouped = BlockGrouping.group(ratesScreen)
+
+        for amountText in ["€ 9,99", "€ 8,99"] {
+            let holder = grouped.first { $0.text.contains(amountText) }
+            XCTAssertNotNil(holder, "\(amountText) vanished from the output")
+
+            for other in grouped where other.id != holder?.id {
+                let box = other.box
+                let amountBox = holder!.box
+                let coveredX = max(0, min(box.maxX, amountBox.maxX) - max(box.x, amountBox.x))
+                let coveredY = max(0, min(box.maxY, amountBox.maxY) - max(box.y, amountBox.y))
+                let fraction = (coveredX * coveredY) / (amountBox.width * amountBox.height)
+                XCTAssertLessThanOrEqual(
+                    fraction, 0.5,
+                    "a group's box covers \(amountText) and would erase it"
+                )
+            }
+        }
+    }
+
+    func testStackedLabelsStaySeparate() {
+        let grouped = BlockGrouping.group(ratesScreen)
+        XCTAssertFalse(
+            grouped.contains { $0.text.contains("stroom:") && $0.text.contains("gas:") },
+            "two labels merged into one run: \(grouped.map(\.text))"
+        )
+    }
+
+    func testFootnoteDoesNotJoinTheLabels() {
+        let grouped = BlockGrouping.group(ratesScreen)
+        XCTAssertFalse(
+            grouped.contains { $0.text.contains("stroom:") && $0.text.contains("Bovenstaande") }
+        )
+    }
+
+    func testNothingIsLost() {
+        let grouped = BlockGrouping.group(ratesScreen)
+        let words = grouped.flatMap { $0.text.split(separator: " ") }.count
+        let original = ratesScreen.flatMap { $0.text.split(separator: " ") }.count
+        XCTAssertEqual(words, original)
+    }
+
+    func testOrdinaryProseStillMerges() {
+        // The guard must not stop real paragraphs joining.
+        let prose = (0..<4).map { index in
+            TextBlock(
+                id: index, text: "een regel van gewone lopende tekst",
+                box: BoundingBox(x: 0.08, y: 0.1 + Double(index) * 0.04, width: 0.85, height: 0.03)
+            )
+        }
+        XCTAssertEqual(BlockGrouping.group(prose).count, 1)
+    }
+
+    func testSwallowGuardDetectsEnclosure() {
+        let group = [label(0, "a:", y: 0.1), footnote(1, y: 0.16)]
+        let outsider = amount(2, "€ 9,99", y: 0.1)
+        XCTAssertTrue(
+            BlockGrouping.wouldSwallowOutsider(group, among: group + [outsider])
+        )
+        XCTAssertFalse(
+            BlockGrouping.wouldSwallowOutsider(group, among: group),
+            "with nothing outside there is nothing to swallow"
+        )
+    }
+}
+
+/// Rows that were the same size on the original screen must come back the same
+/// size, or the result reads as sloppy for no reason the user can see.
+final class LayoutHarmonizeTests: XCTestCase {
+
+    func testRowsOfTheSameHeightTakeOneSize() {
+        let sizes = [0: 17.0, 1: 13.0, 2: 15.0]
+        let heights = [0: 0.030, 1: 0.031, 2: 0.029]
+
+        let result = LayoutFitting.harmonize(sizes: sizes, heights: heights)
+        XCTAssertEqual(Set(result.values), [13.0], "all three should settle on the smallest")
+    }
+
+    func testSmallestWinsSoEveryRowStillFits() {
+        let result = LayoutFitting.harmonize(
+            sizes: [0: 20.0, 1: 9.0], heights: [0: 0.03, 1: 0.03]
+        )
+        XCTAssertEqual(result[0], 9.0)
+    }
+
+    func testAHeadingKeepsItsOwnSize() {
+        let sizes = [0: 28.0, 1: 14.0, 2: 16.0]
+        let heights = [0: 0.08, 1: 0.03, 2: 0.03]
+
+        let result = LayoutFitting.harmonize(sizes: sizes, heights: heights)
+        XCTAssertEqual(result[0], 28.0, "a heading must not be dragged down to body size")
+        XCTAssertEqual(result[1], 14.0)
+        XCTAssertEqual(result[2], 14.0)
+    }
+
+    func testThreeDistinctScalesStayDistinct() {
+        let sizes = [0: 30.0, 1: 17.0, 2: 16.0, 3: 10.0]
+        let heights = [0: 0.09, 1: 0.03, 2: 0.03, 3: 0.014]
+
+        let result = LayoutFitting.harmonize(sizes: sizes, heights: heights)
+        XCTAssertEqual(result[0], 30.0)
+        XCTAssertEqual(result[1], 16.0)
+        XCTAssertEqual(result[2], 16.0)
+        XCTAssertEqual(result[3], 10.0)
+    }
+
+    func testSingleRunIsUntouched() {
+        XCTAssertEqual(
+            LayoutFitting.harmonize(sizes: [0: 14.0], heights: [0: 0.03]), [0: 14.0]
+        )
+    }
+
+    func testZeroHeightsAreIgnoredNotCrashed() {
+        let result = LayoutFitting.harmonize(
+            sizes: [0: 14.0, 1: 12.0], heights: [0: 0, 1: 0.03]
+        )
+        XCTAssertEqual(result[0], 14.0, "a run with no height keeps its own size")
+    }
+
+    func testEveryInputGetsAnOutput() {
+        let sizes = [0: 12.0, 1: 14.0, 2: 20.0]
+        let heights = [0: 0.03, 1: 0.03, 2: 0.06]
+        let result = LayoutFitting.harmonize(sizes: sizes, heights: heights)
+        XCTAssertEqual(Set(result.keys), Set(sizes.keys))
+    }
+
+    func testToleranceIsHonoured() {
+        // 0.030 and 0.040 differ by 25%: one bin at 0.3 tolerance, two at 0.1.
+        let sizes = [0: 18.0, 1: 12.0]
+        let heights = [0: 0.040, 1: 0.030]
+
+        XCTAssertEqual(
+            Set(LayoutFitting.harmonize(sizes: sizes, heights: heights, tolerance: 0.3).values),
+            [12.0]
+        )
+        XCTAssertEqual(
+            LayoutFitting.harmonize(sizes: sizes, heights: heights, tolerance: 0.1)[0], 18.0
+        )
+    }
+}

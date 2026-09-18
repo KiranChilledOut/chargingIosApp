@@ -238,6 +238,21 @@ by reading the code.
   averages to murky dark green, so the fill reads as a stain and the contrast
   rule then puts white text on it. Background pixels outnumber glyph pixels, so
   the modal bucket of a small sampled grid is the background.
+- **A group's box must not enclose an outsider.** On a label/value screen the
+  labels stack in a left column and read exactly like a paragraph. Merging them
+  with the footnote below produced a band spanning the whole row — which then
+  painted over the amounts on the right and erased them.
+  `wouldSwallowOutsider` is the guard, and a line ending in `:` is treated as a
+  complete label that does not absorb the next line.
+- **Sizes are harmonised, not chosen per box.** Each run fitted alone comes out
+  at whatever size its particular English needed, so rows that were identical
+  on the original screen end up visibly different. `LayoutFitting.harmonize`
+  bins runs by original height and gives each bin the smallest size any member
+  needed.
+- **Background is sampled beside a run, not under it.** A large bold heading
+  fills its box with glyphs, so the ink outnumbers the ground and the dominant
+  colour comes back as the *letters* — a green header gets a black patch with
+  white text. The strips above and below a line are the surface it sits on.
 - **Grouping steps over asides.** A block that does not belong used to close
   the group. An icon in the margin, sitting vertically between two lines of a
   wrapped date, therefore split it — and the second line stayed on screen

@@ -113,6 +113,61 @@ public enum LayoutFitting {
         return best
     }
 
+    /// Makes runs that were the same size on the original screen the same
+    /// size again.
+    ///
+    /// Each box is fitted on its own, so two rows of a rates table end up at
+    /// whatever size their particular English happened to need — one label
+    /// noticeably smaller than the one above it, for no reason the reader can
+    /// see. The original screen had them equal, and the eye reads the
+    /// difference as sloppiness.
+    ///
+    /// Runs are binned by how tall they stood originally, and every run in a
+    /// bin takes the smallest size any of them needed — the only choice that
+    /// leaves them all fitting.
+    ///
+    /// - Parameters:
+    ///   - sizes: each run's independently fitted size, by id.
+    ///   - heights: each run's original box height, by id.
+    ///   - tolerance: how far two heights may differ and still count as the
+    ///     same kind of text.
+    public static func harmonize(
+        sizes: [Int: Double],
+        heights: [Int: Double],
+        tolerance: Double = 0.22
+    ) -> [Int: Double] {
+        guard sizes.count > 1 else { return sizes }
+
+        // Bin by height, largest first, so a heading anchors its own bin
+        // rather than being absorbed into the body text below it.
+        let ordered = heights
+            .filter { sizes[$0.key] != nil && $0.value > 0 }
+            .sorted { $0.value > $1.value }
+        guard !ordered.isEmpty else { return sizes }
+
+        var bins: [[Int]] = []
+        var anchors: [Double] = []
+
+        for (id, height) in ordered {
+            if let index = anchors.firstIndex(where: { anchor in
+                abs(height - anchor) / anchor <= tolerance
+            }) {
+                bins[index].append(id)
+            } else {
+                bins.append([id])
+                anchors.append(height)
+            }
+        }
+
+        var result = sizes
+        for bin in bins where bin.count > 1 {
+            let smallest = bin.compactMap { sizes[$0] }.min()
+            guard let smallest else { continue }
+            for id in bin { result[id] = smallest }
+        }
+        return result
+    }
+
     /// Whether the English needs shrinking at all. Used to decide when to warn
     /// that a label may be clipped.
     public static func fitsAtNaturalSize(
