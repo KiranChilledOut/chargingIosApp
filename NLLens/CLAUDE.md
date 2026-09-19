@@ -322,6 +322,57 @@ confidently is the most damaging thing this app can produce.
   decode, for a payload the REST endpoint returns directly (and more of it:
   the MCP shape drops `answer`). REST stays.
 
+## The question is not the query
+
+`searchQuery(from:)` used to send the user's question to Tavily verbatim. That
+works for a first message and fails for every follow-up, because follow-ups are
+anaphoric: "is that a good rate?", "what's the average?", "should I switch?"
+carry no topic at all. Asked "what is the average rate?" over a Dutch energy
+contract, Tavily matched on the country alone and returned **travel and entry
+requirements** — and the answer had to admit it still could not give a figure.
+
+`SearchQueryBuilder` and `TranslationPipeline.plan` replace it.
+
+- **The model writes the query.** Only it can resolve what a follow-up refers
+  to — turning "is that a good rate?" into a query about Dutch electricity
+  prices per kWh needs the screen, the history and the remembered facts, all of
+  which it has. This costs one extra round trip per searched question, and it
+  is the difference between a lookup that answers and one that returns travel
+  advice.
+- **A heuristic query is built regardless**, and used whenever the planning
+  call fails or comes back unusable — a model asked for a query sometimes
+  returns a sentence, an apology, or the word "search". `isAcceptable` is the
+  gate. Losing the lookup to a bad round trip would be worse than a blunt query.
+- **Dutch terms are preferred for Dutch facts.** The authoritative page for a
+  tariff or threshold is ACM, Belastingdienst or Nibud, and it is in Dutch.
+- **The year goes in.** Without it the engine happily returns a page from four
+  years ago, which is exactly the failure this whole feature exists to prevent.
+- **`needs_search: false` is honoured but overridable.** Translating a word
+  needs no lookup; the globe in the composer still forces one, because pressing
+  it is a statement.
+
+## Memory
+
+`MemoryStore` carries facts between screens — the tariff, the provider, the
+contract end date, whether they rent. Without it every conversation restarts
+from nothing: the screen is in front of the model but nothing else is, so it
+asks again, or answers generically.
+
+- **Keyed, not appended.** A tariff learned in March and again in September is
+  one fact with a new value. Keeping both leaves the model hedging between two
+  numbers it cannot choose between.
+- **Learned off the critical path.** `answer` starts the extraction detached
+  and returns. Awaiting it would park a composed reply behind a call the user
+  never asked for.
+- **Extracted from already-redacted text**, so an IBAN arrives as `[[R1]]` —
+  and `isStorable` drops anything carrying one. A placeholder stored as a fact
+  would be quoted back later as though it were a value.
+- **Visible and deletable in Settings.** A memory you cannot read is one you
+  cannot correct, and a wrong remembered fact is worse than none: it is quietly
+  applied to every later answer.
+- **Recall is scored, not dumped.** A prompt carrying forty facts buries the
+  two that matter. Term overlap first, recency as the tiebreak, eight at most.
+
 ## Reasoning models return empty content
 
 `extractContent` reads `finish_reason` and `reasoning_content`, not just

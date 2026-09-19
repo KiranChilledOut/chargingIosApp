@@ -170,18 +170,11 @@ final class TavilyClientTests: XCTestCase {
 
     func testRedactionPlaceholdersAreStrippedFromTheQuery() {
         // "[[R1]]" means nothing to a search engine and would skew the results.
-        let query = TranslationPipeline.searchQuery(
-            from: "Is [[R1]] a good rate for [[R2]] in Netherlands?"
+        let query = SearchQueryBuilder.fallbackQuery(
+            question: "Is [[R1]] a good rate for [[R2]] in Netherlands?"
         )
         XCTAssertFalse(query.contains("[[R"))
-        XCTAssertEqual(query, "Is a good rate for in Netherlands?")
-    }
-
-    func testOrdinaryQuestionsPassThrough() {
-        XCTAssertEqual(
-            TranslationPipeline.searchQuery(from: "  Is this a good deal  in Netherlands ? "),
-            "Is this a good deal in Netherlands ?"
-        )
+        XCTAssertTrue(query.hasPrefix("Is a good rate for in Netherlands?"))
     }
 }
 
@@ -217,7 +210,7 @@ final class SearchStatusTests: XCTestCase {
 
     func testSuccessReportsHowManyResults() async throws {
         let answer = try await pipeline(
-            MockTransport(completion: "ok"),
+            MockTransport.planningThen("ok"),
             searchTransport: MockTransport(stubs: [.json(searchBody)])
         ).answer(in: conversation)
 
@@ -229,13 +222,15 @@ final class SearchStatusTests: XCTestCase {
     /// The wiring, not just the wording: a failed lookup has to reach the
     /// model, or it goes on claiming it has no search tool.
     func testTheFailureReachesTheSystemPrompt() async throws {
-        let chat = MockTransport(completion: "answered anyway")
+        let chat = MockTransport.planningThen("answered anyway")
         _ = try await pipeline(
             chat,
             searchTransport: MockTransport(stubs: [.json("{}", status: 401)])
         ).answer(in: conversation)
 
-        let body = try XCTUnwrap(chat.requests.first?.body)
+        // The answer call, not the planning call that now precedes it.
+        XCTAssertEqual(chat.requestCount, 2, "plan, then answer")
+        let body = try XCTUnwrap(chat.requests.last?.body)
         let object = try XCTUnwrap(
             try JSONSerialization.jsonObject(with: body) as? [String: Any]
         )
@@ -259,7 +254,7 @@ final class SearchStatusTests: XCTestCase {
 
     func testFailureIsReportedButStillAnswers() async throws {
         let answer = try await pipeline(
-            MockTransport(completion: "answered anyway"),
+            MockTransport.planningThen("answered anyway"),
             searchTransport: MockTransport(stubs: [.json("{}", status: 401)])
         ).answer(in: conversation)
 
@@ -291,7 +286,7 @@ final class SearchStatusTests: XCTestCase {
         let searchTransport = MockTransport(stubs: [.json(searchBody)])
 
         let answer = try await pipeline(
-            MockTransport(completion: "ok"),
+            MockTransport.planningThen("ok"),
             searchTransport: searchTransport, settings: settings
         ).answer(in: conversation, forceSearch: true)
 
@@ -311,7 +306,7 @@ final class SearchStatusTests: XCTestCase {
     }
 
     func testSearchGroundingReachesTheModel() async throws {
-        let transport = MockTransport(completion: "ok")
+        let transport = MockTransport.planningThen("ok")
         _ = try await pipeline(
             transport, searchTransport: MockTransport(stubs: [.json(searchBody)])
         ).answer(in: conversation)

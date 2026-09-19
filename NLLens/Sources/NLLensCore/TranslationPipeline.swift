@@ -50,19 +50,22 @@ public struct TranslationPipeline: Sendable {
     private let settings: AppSettings
     private let textModel: String
     private let search: TavilyClient?
+    private let memory: MemoryStore?
 
     public init(
         client: NebiusClient,
         cache: TranslationCache?,
         settings: AppSettings,
         textModel: String,
-        search: TavilyClient? = nil
+        search: TavilyClient? = nil,
+        memory: MemoryStore? = nil
     ) {
         self.client = client
         self.cache = cache
         self.settings = settings
         self.textModel = textModel
         self.search = search
+        self.memory = memory
     }
 
     // MARK: - Translate
@@ -275,10 +278,23 @@ public struct TranslationPipeline: Sendable {
             return copy
         }
 
+        let question = safeConversation.messages.last?.text ?? ""
+
+        // What is already known comes first: it shapes the search query as
+        // much as it shapes the answer. Asking "is that a good rate?" is only
+        // answerable against the rate they are already on.
+        let recalled = await memory?.grounding(
+            for: "\(question)\n\(safeConversation.visualReading)"
+        ) ?? ""
+
         // Looked up before answering, not after, so the reply is built on
         // current figures rather than corrected against them.
         let (found, status) = await lookUp(
-            question: safeConversation.messages.last?.text, force: forceSearch
+            question: question,
+            conversation: safeConversation,
+            memory: recalled,
+            force: forceSearch,
+            model: model ?? textModel
         )
 
         // The model is told the outcome either way. Handed an empty grounding
@@ -289,7 +305,8 @@ public struct TranslationPipeline: Sendable {
         let raw = try await client.complete(
             messages: safeConversation.requestMessages(
                 instructions: Prompts.chatSystem,
-                searchGrounding: grounding
+                searchGrounding: grounding,
+                memory: recalled
             ),
             model: model ?? textModel,
             temperature: 0.3,
@@ -298,11 +315,97 @@ public struct TranslationPipeline: Sendable {
             // and `content` came back empty.
             maxTokens: 3000
         )
+        let text = map.restore(in: raw)
+
+        // Detached on purpose. Remembering is worth a round trip but not worth
+        // making them wait for one: the answer is already composed, and
+        // awaiting here would park a finished reply behind a call the user
+        // never asked for. A failure to remember must not turn a good answer
+        // into an error either.
+        if memory != nil, settings.memoryEnabled {
+            let conversationCopy = safeConversation
+            let learningModel = model ?? textModel
+            Task.detached(priority: .background) { [self] in
+                await learn(
+                    from: conversationCopy, question: question,
+                    answer: raw, model: learningModel
+                )
+            }
+        }
+
         return Answer(
-            text: map.restore(in: raw),
+            text: text,
             sources: found?.results ?? [],
             searchStatus: status
         )
+    }
+
+    // MARK: - Memory
+
+    /// Records what this exchange revealed about the person.
+    ///
+    /// Runs on the redacted conversation, so anything sensitive is already a
+    /// placeholder and `MemoryFact.isStorable` drops it. Errors are swallowed:
+    /// this is a background courtesy, and a store that cannot write must not
+    /// fail an answer that already succeeded.
+    func learn(
+        from conversation: ScreenConversation,
+        question: String,
+        answer: String,
+        model: String
+    ) async {
+        guard let memory, settings.memoryEnabled, !question.isEmpty else { return }
+
+        let digest = """
+        Screen: \(conversation.visualReading)
+
+        Screen text:
+        \(String(conversation.screenText.prefix(1500)))
+
+        They asked: \(question)
+        You answered: \(String(answer.prefix(800)))
+        """
+
+        do {
+            let raw = try await client.complete(
+                messages: [.system(Prompts.memorySystem), .user(digest)],
+                model: model,
+                temperature: 0,
+                maxTokens: 400,
+                responseFormat: .jsonSchema(Schemas.memoryFacts)
+            )
+            // The screen's own one-line description is the most useful thing
+            // to attribute a fact to later.
+            let source = String(conversation.visualReading.prefix(80))
+            let facts = Self.parseFacts(raw, source: source)
+            guard !facts.isEmpty else { return }
+            _ = try await memory.record(facts)
+        } catch {
+            // Deliberately silent. Nothing the user asked for has failed.
+        }
+    }
+
+    struct FactsWire: Decodable {
+        struct Entry: Decodable {
+            let key: String
+            let label: String?
+            let value: String
+        }
+        let facts: [Entry]
+    }
+
+    static func parseFacts(_ raw: String, source: String = "") -> [MemoryFact] {
+        guard let wire = try? JSONExtraction.decode(FactsWire.self, from: raw) else { return [] }
+
+        return wire.facts.compactMap { entry in
+            let fact = MemoryFact(
+                key: entry.key,
+                label: entry.label ?? "",
+                value: entry.value,
+                source: source
+            )
+            return fact.isStorable ? fact : nil
+        }
     }
 
     /// Searches the web for the question at hand, reporting what happened.
@@ -313,17 +416,26 @@ public struct TranslationPipeline: Sendable {
     /// explaining that it cannot search is indistinguishable from a search that
     /// ran and found nothing. The status is what tells them apart.
     private func lookUp(
-        question: String?, force: Bool
+        question: String,
+        conversation: ScreenConversation,
+        memory recalled: String,
+        force: Bool,
+        model: String
     ) async -> (WebSearchResponse?, SearchStatus) {
         guard force || settings.webSearchEnabled else { return (nil, .skipped) }
         guard let search, search.isUsable else { return (nil, .unavailable) }
-        guard let question else { return (nil, .skipped) }
+        guard !question.isEmpty else { return (nil, .skipped) }
 
-        let query = Self.searchQuery(from: question)
-        guard !query.isEmpty else { return (nil, .skipped) }
+        let plan = await plan(
+            question: question, conversation: conversation,
+            memory: recalled, force: force, model: model
+        )
+        guard plan.isUsable else {
+            return (nil, .notNeeded(plan.reason))
+        }
 
         do {
-            let response = try await search.search(query)
+            let response = try await search.search(plan.query)
             return (response, .searched(count: response.results.count))
         } catch let error as WebSearchError {
             return (nil, .failed(error.userMessage))
@@ -332,21 +444,79 @@ public struct TranslationPipeline: Sendable {
         }
     }
 
-    /// Turns a question into something worth sending a search engine.
+    /// Decides what to search for.
     ///
-    /// Redaction placeholders are stripped rather than sent: "[[R1]]" is noise
-    /// to a search engine, and leaving it in would skew the results around a
-    /// token that means nothing.
-    static func searchQuery(from question: String) -> String {
-        var query = question
-        if let regex = Redactor.placeholderPattern {
-            query = regex.stringByReplacingMatches(
-                in: query,
-                range: NSRange(query.startIndex..., in: query),
-                withTemplate: " "
+    /// The model writes the query, because only it can resolve what a
+    /// follow-up refers to: "is that a good rate?" has to become a query about
+    /// Dutch electricity prices per kWh, and nothing but the screen and the
+    /// conversation can turn it into one. A heuristic query is built either
+    /// way and used whenever the planning call fails or answers with
+    /// something unusable — a lookup is too valuable to lose to a bad round
+    /// trip.
+    func plan(
+        question: String,
+        conversation: ScreenConversation,
+        memory recalled: String,
+        force: Bool,
+        model: String
+    ) async -> SearchPlan {
+        let fallback = SearchQueryBuilder.fallbackQuery(
+            question: question,
+            screenText: conversation.screenText,
+            visualReading: conversation.visualReading
+        )
+
+        let context = """
+        Screen: \(conversation.visualReading)
+
+        Screen text:
+        \(String(conversation.screenText.prefix(1200)))
+
+        \(recalled)
+
+        Today: \(DateFormatter.searchStamp.string(from: Date()))
+        Their question: \(question)
+        """
+
+        do {
+            let raw = try await client.complete(
+                messages: [.system(Prompts.searchPlanSystem), .user(context)],
+                model: model,
+                temperature: 0,
+                maxTokens: 300,
+                responseFormat: .jsonSchema(Schemas.searchPlan)
             )
+            if let planned = Self.parsePlan(raw) {
+                // The globe overrides a "no search needed": the user pressing
+                // it is a statement that they want one.
+                let needs = planned.needsSearch || force
+                let query = SearchQueryBuilder.isAcceptable(planned.query)
+                    ? planned.query
+                    : fallback
+                return SearchPlan(query: query, needsSearch: needs, reason: planned.reason)
+            }
+        } catch {
+            // Fall through to the query built without asking.
         }
-        return TextNormalization.collapseWhitespace(query)
+        return SearchPlan(query: fallback, needsSearch: true, reason: "")
+    }
+
+    /// Wire shape of a planning reply. `needs_search` and `reason` are
+    /// optional on the way in: a planner that omitted a field should not turn
+    /// the whole lookup off.
+    struct PlanWire: Decodable {
+        let query: String
+        let needs_search: Bool?
+        let reason: String?
+    }
+
+    static func parsePlan(_ raw: String) -> SearchPlan? {
+        guard let wire = try? JSONExtraction.decode(PlanWire.self, from: raw) else { return nil }
+        return SearchPlan(
+            query: wire.query,
+            needsSearch: wire.needs_search ?? true,
+            reason: wire.reason ?? ""
+        )
     }
 
     // MARK: - Risk

@@ -60,6 +60,10 @@ public struct AppSettings: Sendable, Equatable, Codable {
     /// model remembers — which for rates, thresholds and prices is usually
     /// both confident and out of date.
     public var webSearchEnabled: Bool
+    /// Whether to carry facts between screens. On by default: a translator
+    /// that forgets what you told it last week is the thing people complain
+    /// about, not a feature they opt into.
+    public var memoryEnabled: Bool
     /// Check captured screens for phishing signals automatically.
     ///
     /// On by default and automatic on purpose: a scam check you have to
@@ -75,6 +79,7 @@ public struct AppSettings: Sendable, Equatable, Codable {
         showSourceText: Bool = false,
         riskCheckEnabled: Bool = true,
         webSearchEnabled: Bool = true,
+        memoryEnabled: Bool = true,
         defaultRegister: Register = .formal
     ) {
         self.cloudEnabled = cloudEnabled
@@ -83,6 +88,7 @@ public struct AppSettings: Sendable, Equatable, Codable {
         self.showSourceText = showSourceText
         self.riskCheckEnabled = riskCheckEnabled
         self.webSearchEnabled = webSearchEnabled
+        self.memoryEnabled = memoryEnabled
         self.defaultRegister = defaultRegister
     }
 

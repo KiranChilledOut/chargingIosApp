@@ -7,6 +7,7 @@ struct SettingsView: View {
     @State private var searchKey = ""
     @State private var searchKeyWarning: String?
     @State private var keyCheck: TavilyKeyCheck?
+    @State private var remembered: [MemoryFact] = []
     @State private var isCheckingKey = false
     /// Masked, and read from the keychain rather than the field — the field
     /// starts empty on every launch, so it cannot show what is actually saved.
@@ -123,6 +124,41 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Toggle("Remember what you tell me", isOn: $settings.memoryEnabled)
+
+                    if remembered.isEmpty {
+                        Text("Nothing remembered yet.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(remembered) { fact in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(fact.label.isEmpty ? fact.key : fact.label)
+                                    .font(.callout.weight(.medium))
+                                Text(fact.value)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .onDelete { offsets in
+                            Task { await forget(at: offsets) }
+                        }
+
+                        Button("Forget everything", role: .destructive) {
+                            Task { await forgetAll() }
+                        }
+                    }
+                } header: {
+                    Text("Memory")
+                } footer: {
+                    // Shown and deletable on purpose. A memory you cannot read
+                    // is one you cannot correct, and a wrong remembered fact
+                    // is worse than none: it is quietly applied to every later
+                    // answer.
+                    Text("Facts carried between screens, so a question about your energy bill does not start from nothing. Swipe to remove one. Nothing here leaves your phone except as part of a question you ask.")
+                }
+
+                Section {
                     Toggle("Check screens for scams", isOn: $settings.riskCheckEnabled)
                 } header: {
                     Text("Safety")
@@ -198,6 +234,7 @@ struct SettingsView: View {
                     apiKey = ""
                 }
             }
+            .task { await loadMemory() }
         }
     }
 
@@ -233,6 +270,23 @@ struct SettingsView: View {
     /// same body. Running one real request here is the only way to separate
     /// those from an exhausted plan, which is a 432 and not a key problem at
     /// all.
+    private func loadMemory() async {
+        remembered = await AppEnvironment.shared.memory().all
+    }
+
+    private func forget(at offsets: IndexSet) async {
+        let store = await AppEnvironment.shared.memory()
+        for index in offsets where remembered.indices.contains(index) {
+            try? await store.forget(key: remembered[index].key)
+        }
+        await loadMemory()
+    }
+
+    private func forgetAll() async {
+        try? await AppEnvironment.shared.memory().forgetAll()
+        await loadMemory()
+    }
+
     private func checkSearchKey() async {
         isCheckingKey = true
         keyCheck = nil

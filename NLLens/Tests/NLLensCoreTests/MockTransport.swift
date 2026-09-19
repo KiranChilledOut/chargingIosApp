@@ -37,6 +37,18 @@ final class MockTransport: HTTPTransport, @unchecked Sendable {
         self.init(stubs: [.completion(completion)])
     }
 
+    /// A chat exchange that searches: the planning reply, then the answer.
+    ///
+    /// Two calls, not one — the model writes the search query before the
+    /// answer is composed, because a follow-up question carries no topic of
+    /// its own and cannot be sent to a search engine as typed.
+    static func planningThen(_ completion: String, query: String = "dutch energy tariff kwh 2026") -> MockTransport {
+        MockTransport(stubs: [
+            .completion(#"{"query":"\#(query)","needs_search":true,"reason":"current rates"}"#),
+            .completion(completion),
+        ])
+    }
+
     var requestCount: Int {
         lock.lock(); defer { lock.unlock() }
         return requests.count

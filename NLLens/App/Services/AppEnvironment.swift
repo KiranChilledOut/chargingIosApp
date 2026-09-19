@@ -14,11 +14,14 @@ public final class AppEnvironment: @unchecked Sendable {
     private let defaults: UserDefaults
     private let cacheActor: TranslationCache
     private var cacheLoaded = false
+    private let memoryActor: MemoryStore
+    private var memoryLoaded = false
     private let loadLock = NSLock()
 
     private init() {
         self.defaults = UserDefaults(suiteName: Self.appGroupIdentifier) ?? .standard
         self.cacheActor = TranslationCache(fileURL: Self.cacheFileURL())
+        self.memoryActor = MemoryStore(fileURL: Self.memoryFileURL())
     }
 
     // MARK: - Storage locations
@@ -41,6 +44,12 @@ public final class AppEnvironment: @unchecked Sendable {
         containerURL()
             .appendingPathComponent("NLLens", isDirectory: true)
             .appendingPathComponent("translations.jsonl")
+    }
+
+    static func memoryFileURL() -> URL {
+        containerURL()
+            .appendingPathComponent("NLLens", isDirectory: true)
+            .appendingPathComponent("memory.jsonl")
     }
 
     // MARK: - Settings
@@ -119,13 +128,33 @@ public final class AppEnvironment: @unchecked Sendable {
         return cacheActor
     }
 
+    /// What the app remembers between screens, loaded once per process.
+    public func memory() async -> MemoryStore {
+        loadLock.lock()
+        let needsLoad = !memoryLoaded
+        memoryLoaded = true
+        loadLock.unlock()
+
+        if needsLoad {
+            do {
+                try await memoryActor.load()
+            } catch {
+                // Same posture as the cache: a memory that will not load is a
+                // duller assistant, never a failed answer.
+                NSLog("NLLens: memory load failed: \(error.localizedDescription)")
+            }
+        }
+        return memoryActor
+    }
+
     public func pipeline() async -> TranslationPipeline {
         TranslationPipeline(
             client: client,
             cache: settings.cacheEnabled ? await cache() : nil,
             settings: settings,
             textModel: textModel,
-            search: searchClient
+            search: searchClient,
+            memory: settings.memoryEnabled ? await memory() : nil
         )
     }
 }

@@ -113,6 +113,40 @@ public enum Schemas {
         "additionalProperties": false,
     ]
 
+    /// `{query, needs_search, reason}` — planning a lookup.
+    public static let searchPlan: JSONValue = [
+        "type": "object",
+        "properties": [
+            "query": ["type": "string"],
+            "needs_search": ["type": "boolean"],
+            "reason": ["type": "string"],
+        ],
+        "required": ["query", "needs_search", "reason"],
+        "additionalProperties": false,
+    ]
+
+    /// `{facts: [{key, label, value}]}` — what to carry to the next screen.
+    public static let memoryFacts: JSONValue = [
+        "type": "object",
+        "properties": [
+            "facts": [
+                "type": "array",
+                "items": [
+                    "type": "object",
+                    "properties": [
+                        "key": ["type": "string"],
+                        "label": ["type": "string"],
+                        "value": ["type": "string"],
+                    ],
+                    "required": ["key", "label", "value"],
+                    "additionalProperties": false,
+                ],
+            ],
+        ],
+        "required": ["facts"],
+        "additionalProperties": false,
+    ]
+
     /// `{level, headline, signals[], advice}` — the risk path.
     public static let riskAssessment: JSONValue = [
         "type": "object",

@@ -80,10 +80,16 @@ public struct ScreenConversation: Sendable, Equatable, Codable {
     /// screen.
     public func systemMessage(
         instructions: String,
-        searchGrounding: String = ""
+        searchGrounding: String = "",
+        memory: String = ""
     ) -> String {
         var parts = [instructions]
 
+        // Before the screen: what is already known is the frame the screen is
+        // read against, not a footnote to it.
+        if !memory.isEmpty {
+            parts.append(memory)
+        }
         if !searchGrounding.isEmpty {
             parts.append(searchGrounding)
         }
@@ -105,10 +111,15 @@ public struct ScreenConversation: Sendable, Equatable, Codable {
     public func requestMessages(
         instructions: String,
         searchGrounding: String = "",
+        memory: String = "",
         historyBudget: Int = defaultHistoryBudget
     ) -> [ChatMessage] {
         var result: [ChatMessage] = [.system(
-            systemMessage(instructions: instructions, searchGrounding: searchGrounding)
+            systemMessage(
+                instructions: instructions,
+                searchGrounding: searchGrounding,
+                memory: memory
+            )
         )]
 
         for message in recentHistory(budget: historyBudget) {

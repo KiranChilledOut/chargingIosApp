@@ -57,6 +57,10 @@ public struct WebSearchResponse: Sendable, Equatable {
 public enum SearchStatus: Sendable, Equatable {
     /// Off by setting, or not warranted for this turn.
     case skipped
+    /// The planner judged the question answerable without a lookup —
+    /// translating a word, explaining a button. Carries its reason, so a
+    /// skipped search is a visible decision rather than a silent one.
+    case notNeeded(String)
     /// No key configured.
     case unavailable
     case failed(String)
@@ -77,7 +81,7 @@ public enum SearchStatus: Sendable, Equatable {
     /// instead of disowning a feature the user paid attention to setting up.
     public var modelNote: String {
         switch self {
-        case .searched, .skipped:
+        case .searched, .skipped, .notNeeded:
             return ""
         case .unavailable:
             return "No web lookup ran for this question because no search key is "
@@ -99,6 +103,8 @@ public enum SearchStatus: Sendable, Equatable {
     public var note: String? {
         switch self {
         case .skipped: return nil
+        case .notNeeded(let reason):
+            return reason.isEmpty ? nil : "No lookup needed — \(reason)"
         case .unavailable: return "No Tavily key — answered from the screen only"
         case .failed(let reason): return "Search failed: \(reason)"
         case .searched: return nil
