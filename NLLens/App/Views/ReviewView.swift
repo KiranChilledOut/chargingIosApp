@@ -20,7 +20,8 @@ struct ReviewView: View {
     /// The picked image is held separately: on the offline path nothing has
     /// been stored yet, so `snapshot` still holds the *previous* screen.
     @State private var offlineImage: UIImage?
-    @State private var viewingFullScreen = false
+    /// Non-nil while the viewer is open, and which mode it opened in.
+    @State private var openMode: OverlayViewerView.Mode?
 
     var body: some View {
         NavigationStack {
@@ -86,10 +87,14 @@ struct ReviewView: View {
                 guard let item else { return }
                 Task { await translatePicked(item) }
             }
-            .fullScreenCover(isPresented: $viewingFullScreen) {
+            .fullScreenCover(item: $openMode) { mode in
                 if let snapshot {
-                    OverlayViewerView(snapshot: snapshot) {
-                        viewingFullScreen = false
+                    OverlayViewerView(
+                        snapshot: snapshot,
+                        initialMode: mode,
+                        archivable: false
+                    ) {
+                        openMode = nil
                         Task { await reload() }
                     }
                 }
@@ -172,7 +177,19 @@ struct ReviewView: View {
         }
 
         do {
-            _ = try await ScreenTranslator.translate(image: image)
+            let result = try await ScreenTranslator.translate(image: image)
+            // Open the viewer, exactly as Back Tap and the share sheet do.
+            // Refreshing this tab in place left the picked image as the only
+            // capture you could not read as text, explain, or ask about.
+            OverlayPresenter.shared.present(
+                LastResultStore.Snapshot(
+                    renderedImage: result.rendered,
+                    originalImage: result.original,
+                    pairs: result.outcome.blocks,
+                    createdAt: Date(),
+                    redactedCount: result.outcome.redactedCount
+                )
+            )
             await reload()
         } catch PipelineError.cloudDisabled {
             // Cloud is off by choice, so offer the on-device route rather than
@@ -196,10 +213,16 @@ struct ReviewView: View {
             return
         }
         let rendered = OverlayRenderer.render(image: original, blocks: translated)
-        LastResultStore.store(
-            original: original,
-            rendered: rendered,
-            outcome: TranslationOutcome(blocks: translated, servedEntirelyFromCache: true)
+        let outcome = TranslationOutcome(blocks: translated, servedEntirelyFromCache: true)
+        LastResultStore.store(original: original, rendered: rendered, outcome: outcome)
+
+        OverlayPresenter.shared.present(
+            LastResultStore.Snapshot(
+                renderedImage: rendered,
+                originalImage: original,
+                pairs: translated,
+                createdAt: Date()
+            )
         )
         offlineBlocks = []
         offlineImage = nil

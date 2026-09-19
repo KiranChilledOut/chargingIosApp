@@ -15,8 +15,10 @@ import NLLensCore
 /// come from different captures and no longer share a coordinate space.
 struct OverlayViewerView: View {
 
-    enum Mode: Hashable {
+    enum Mode: Hashable, Identifiable {
         case image, reading, explain, chat
+
+        public var id: Self { self }
 
         var symbol: String {
             switch self {
@@ -68,13 +70,17 @@ struct OverlayViewerView: View {
 
     init(
         snapshot: LastResultStore.Snapshot,
+        initialMode: Mode? = nil,
         archivable: Bool = true,
         onDismiss: @escaping () -> Void
     ) {
         self.snapshot = snapshot
         self.archivable = archivable
         self.onDismiss = onDismiss
-        _mode = State(initialValue: snapshot.isMultiScreen ? .reading : .image)
+        _mode = State(
+            initialValue: initialMode
+                ?? (snapshot.isMultiScreen ? .reading : .image)
+        )
         _blocks = State(initialValue: snapshot.pairs)
         _chat = StateObject(wrappedValue: ChatSession(snapshot: snapshot))
     }
@@ -355,7 +361,10 @@ struct OverlayViewerView: View {
         guard mode == .image else { return }
 
         chromeHideTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2.5))
+            // Long enough to be noticed. The mode picker lives in this bar, so
+            // fading it too quickly is how someone never discovers that the
+            // screen can be read as text, explained, or asked about at all.
+            try? await Task.sleep(for: .seconds(4))
             guard !Task.isCancelled else { return }
             withAnimation { showingChrome = false }
         }

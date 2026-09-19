@@ -135,6 +135,12 @@ Three ways in, deliberately:
 - **Back Tap → Shortcuts → App Intent** — fastest, but needs configuring.
 - **In-app Photos picker** — for testing and for screenshots already taken.
 
+**Every capture path ends in `OverlayViewerView`**, via `OverlayPresenter`:
+the two intents, the share sheet, the in-app Photos picker and the on-device
+fallback. The modes — image, text, explain, ask — live only in that viewer, so
+a path that renders inline instead silently loses all of them. The Photos
+picker did exactly that, and chat was unreachable for anything you picked.
+
 Multiple shared images are coalesced over a 400 ms window before processing.
 Without that, three shared screenshots start three translations that each
 overwrite the last, instead of one stitched document.
