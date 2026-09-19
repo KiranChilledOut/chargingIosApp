@@ -265,6 +265,31 @@ by reading the code.
   untranslated beside its own translation. Narrow, off-column blocks are now
   set aside and kept as their own block; a wide one still starts a new group.
 
+## Web search
+
+`TavilyClient` looks questions up before the model answers, not after. Rates,
+thresholds and prices change yearly, and a remembered figure stated
+confidently is the most damaging thing this app can produce.
+
+- **Bearer header, never a body `api_key`.** Tavily deprecated the body form
+  and newer keys reject it — which surfaces as a bare auth error with nothing
+  pointing at the cause.
+- The query is **redacted first**, then placeholder tokens are stripped:
+  `[[R1]]` means nothing to a search engine and would skew the results.
+- A failed search is **silent**. An answer grounded only in the screen beats an
+  error where an answer should be; search is an enhancement, not a dependency.
+- No key means no `TavilyClient`, which is what turns the step off.
+
+## Reasoning models return empty content
+
+`extractContent` reads `finish_reason` and `reasoning_content`, not just
+`content`. The default text model reasons before answering, and on a small
+budget the chain of thought consumes all of it — leaving HTTP 200 with an empty
+`content`. Reported as "the model returned nothing", that sends the user
+looking for a bug in their question instead of at the token budget, so
+truncation is now named for what it is. Chat gets 3000 tokens for the same
+reason; 900 was not enough to think and answer.
+
 ## Conventions
 
 - The API key lives in the keychain only. Never add a build setting, an

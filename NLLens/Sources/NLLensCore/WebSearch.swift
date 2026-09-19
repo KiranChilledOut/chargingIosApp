@@ -1,0 +1,191 @@
+import Foundation
+
+public struct WebSearchResult: Sendable, Equatable, Identifiable {
+    public let title: String
+    public let url: String
+    public let snippet: String
+
+    public var id: String { url }
+
+    public init(title: String, url: String, snippet: String) {
+        self.title = title
+        self.url = url
+        self.snippet = snippet
+    }
+}
+
+public struct WebSearchResponse: Sendable, Equatable {
+    public let query: String
+    /// Tavily's own synthesis, when asked for.
+    public let answer: String
+    public let results: [WebSearchResult]
+
+    public init(query: String, answer: String = "", results: [WebSearchResult] = []) {
+        self.query = query
+        self.answer = answer
+        self.results = results
+    }
+
+    public var isEmpty: Bool { answer.isEmpty && results.isEmpty }
+
+    /// The findings as grounding for the model.
+    ///
+    /// Dated explicitly, and told to prefer this over recall. Prices, rates and
+    /// benefit thresholds are exactly the things a model states confidently and
+    /// out of date, and exactly the things someone asks about a Dutch contract
+    /// screen.
+    public func grounding(asOf date: Date = Date()) -> String {
+        guard !isEmpty else { return "" }
+
+        let stamp = DateFormatter.searchStamp.string(from: date)
+        var lines = [
+            "Web search results for \"\(query)\", retrieved \(stamp). "
+                + "Prefer these over anything you remember, and say when a figure comes from here.",
+        ]
+        if !answer.isEmpty {
+            lines.append("Summary: \(answer)")
+        }
+        for result in results {
+            lines.append("- \(result.title) — \(result.url)\n  \(result.snippet)")
+        }
+        return lines.joined(separator: "\n")
+    }
+}
+
+public enum WebSearchError: Swift.Error, Equatable {
+    case missingAPIKey
+    case unauthorized
+    case rateLimited
+    case serverError(status: Int)
+    case invalidResponse
+
+    public var userMessage: String {
+        switch self {
+        case .missingAPIKey:
+            return "No Tavily API key set. Add one in Settings to look things up."
+        case .unauthorized:
+            return "Tavily rejected the API key. Check it in Settings."
+        case .rateLimited:
+            return "Tavily rate limit reached. Try again shortly."
+        case .serverError(let status):
+            return "Tavily server error (\(status))."
+        case .invalidResponse:
+            return "Unexpected response from Tavily."
+        }
+    }
+}
+
+/// Looks things up on the web so answers can rest on current figures.
+public struct TavilyClient: Sendable {
+
+    public static let defaultBaseURL = URL(string: "https://api.tavily.com")!
+
+    private let apiKey: String
+    private let baseURL: URL
+    private let transport: any HTTPTransport
+    private let timeout: TimeInterval
+
+    public init(
+        apiKey: String,
+        baseURL: URL = TavilyClient.defaultBaseURL,
+        transport: any HTTPTransport = URLSessionTransport(),
+        timeout: TimeInterval = 20
+    ) {
+        self.apiKey = apiKey
+        self.baseURL = baseURL
+        self.transport = transport
+        self.timeout = timeout
+    }
+
+    public var isUsable: Bool {
+        !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    public func search(
+        _ query: String,
+        maxResults: Int = 5,
+        depth: String = "basic"
+    ) async throws -> WebSearchResponse {
+        guard isUsable else { throw WebSearchError.missingAPIKey }
+
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return WebSearchResponse(query: query) }
+
+        let payload: [String: Any] = [
+            "query": trimmed,
+            "search_depth": depth,
+            "max_results": maxResults,
+            "include_answer": true,
+        ]
+
+        let request = HTTPRequest(
+            url: baseURL.appendingPathComponent("search"),
+            method: "POST",
+            headers: [
+                // Bearer, not an `api_key` body field. Tavily deprecated the
+                // body form and newer keys reject it outright — a mistake that
+                // fails as an auth error with nothing pointing at the cause.
+                "Authorization": "Bearer \(apiKey)",
+                "Content-Type": "application/json",
+            ],
+            body: try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
+            timeout: timeout
+        )
+
+        let response = try await transport.send(request)
+        guard (200..<300).contains(response.statusCode) else {
+            throw Self.mapStatus(response.statusCode)
+        }
+        return try Self.parse(response.body, query: trimmed)
+    }
+
+    static func mapStatus(_ status: Int) -> WebSearchError {
+        switch status {
+        case 401, 403: return .unauthorized
+        case 429: return .rateLimited
+        default: return .serverError(status: status)
+        }
+    }
+
+    static func parse(_ body: Data, query: String) throws -> WebSearchResponse {
+        guard let root = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else {
+            throw WebSearchError.invalidResponse
+        }
+
+        let answer = (root["answer"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        let results = (root["results"] as? [[String: Any]] ?? []).compactMap {
+            item -> WebSearchResult? in
+            guard let url = item["url"] as? String, !url.isEmpty else { return nil }
+            return WebSearchResult(
+                title: (item["title"] as? String) ?? url,
+                url: url,
+                snippet: Self.condense((item["content"] as? String) ?? "")
+            )
+        }
+
+        return WebSearchResponse(query: query, answer: answer, results: results)
+    }
+
+    /// Trims a page extract to something worth spending tokens on.
+    static func condense(_ text: String, limit: Int = 400) -> String {
+        let clean = TextNormalization.collapseWhitespace(text)
+        guard clean.count > limit else { return clean }
+
+        let cut = clean.prefix(limit)
+        if let lastSpace = cut.lastIndex(of: " ") {
+            return String(cut[..<lastSpace]) + "…"
+        }
+        return String(cut) + "…"
+    }
+}
+
+extension DateFormatter {
+    static let searchStamp: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "d MMMM yyyy"
+        formatter.locale = Locale(identifier: "en_GB")
+        return formatter
+    }()
+}

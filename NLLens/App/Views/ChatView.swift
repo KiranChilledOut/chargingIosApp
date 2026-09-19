@@ -85,20 +85,55 @@ struct ChatView: View {
                 Capsule()
                     .fill(Theme.Palette.accent.opacity(0.35))
                     .frame(width: 3)
-                Text(message.text)
-                    .font(Theme.Typeface.reading)
-                    .lineSpacing(3)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
+
+                VStack(alignment: .leading, spacing: Theme.Space.m) {
+                    Text(message.text)
+                        .font(Theme.Typeface.reading)
+                        .lineSpacing(3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+
+                    if let found = session.sources[message.id], !found.isEmpty {
+                        sourceList(found)
+                    }
+                }
             }
         }
+    }
+
+    /// Where an answer was checked. Worth the space: a figure about rates or
+    /// thresholds is only as good as its date, and this is what lets the
+    /// reader go and look.
+    private func sourceList(_ found: [WebSearchResult]) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s) {
+            Label("Checked against", systemImage: "globe")
+                .font(Theme.Typeface.caption)
+                .foregroundStyle(.secondary)
+
+            ForEach(found) { result in
+                if let url = URL(string: result.url) {
+                    Link(destination: url) {
+                        Text(result.title)
+                            .font(Theme.Typeface.caption)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                    }
+                }
+            }
+        }
+        .padding(Theme.Space.m)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            Theme.Palette.surface,
+            in: RoundedRectangle(cornerRadius: Theme.Radius.medium)
+        )
     }
 
     private var thinking: some View {
         HStack(spacing: Theme.Space.s) {
             ProgressView().controlSize(.small)
-            Text("Thinking…")
+            Text(session.isSearching ? "Looking it up…" : "Thinking…")
                 .font(Theme.Typeface.detail)
                 .foregroundStyle(.secondary)
         }

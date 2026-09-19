@@ -49,17 +49,20 @@ public struct TranslationPipeline: Sendable {
     private let cache: TranslationCache?
     private let settings: AppSettings
     private let textModel: String
+    private let search: TavilyClient?
 
     public init(
         client: NebiusClient,
         cache: TranslationCache?,
         settings: AppSettings,
-        textModel: String
+        textModel: String,
+        search: TavilyClient? = nil
     ) {
         self.client = client
         self.cache = cache
         self.settings = settings
         self.textModel = textModel
+        self.search = search
     }
 
     // MARK: - Translate
@@ -227,7 +230,18 @@ public struct TranslationPipeline: Sendable {
     /// namespace, so an IBAN that appears both on screen and in something the
     /// user typed maps to the same token rather than looking like two
     /// accounts. The reply is restored on the way back.
-    public func answer(in conversation: ScreenConversation) async throws -> String {
+    /// A reply, plus whatever it was checked against.
+    public struct Answer: Sendable {
+        public let text: String
+        public let sources: [WebSearchResult]
+
+        public init(text: String, sources: [WebSearchResult] = []) {
+            self.text = text
+            self.sources = sources
+        }
+    }
+
+    public func answer(in conversation: ScreenConversation) async throws -> Answer {
         guard settings.cloudEnabled else { throw PipelineError.cloudDisabled }
 
         let history = conversation.recentHistory()
@@ -246,13 +260,59 @@ public struct TranslationPipeline: Sendable {
             return copy
         }
 
+        // Looked up before answering, not after, so the reply is built on
+        // current figures rather than corrected against them.
+        let found = await lookUp(question: safeConversation.messages.last?.text)
+
         let raw = try await client.complete(
-            messages: safeConversation.requestMessages(instructions: Prompts.chatSystem),
+            messages: safeConversation.requestMessages(
+                instructions: Prompts.chatSystem,
+                searchGrounding: found?.grounding() ?? ""
+            ),
             model: textModel,
             temperature: 0.3,
-            maxTokens: 900
+            // Generous, because the default text model reasons before
+            // answering: at 900 the chain of thought consumed the whole budget
+            // and `content` came back empty.
+            maxTokens: 3000
         )
-        return map.restore(in: raw)
+        return Answer(
+            text: map.restore(in: raw),
+            sources: found?.results ?? []
+        )
+    }
+
+    /// Searches the web for the question at hand, or returns nothing.
+    ///
+    /// Failure is deliberately silent: an answer grounded only in the screen is
+    /// worth far more than an error where an answer should be, and the search
+    /// is an enhancement rather than a dependency.
+    private func lookUp(question: String?) async -> WebSearchResponse? {
+        guard settings.webSearchEnabled,
+              let search, search.isUsable,
+              let question else { return nil }
+
+        let query = Self.searchQuery(from: question)
+        guard !query.isEmpty else { return nil }
+
+        return try? await search.search(query)
+    }
+
+    /// Turns a question into something worth sending a search engine.
+    ///
+    /// Redaction placeholders are stripped rather than sent: "[[R1]]" is noise
+    /// to a search engine, and leaving it in would skew the results around a
+    /// token that means nothing.
+    static func searchQuery(from question: String) -> String {
+        var query = question
+        if let regex = Redactor.placeholderPattern {
+            query = regex.stringByReplacingMatches(
+                in: query,
+                range: NSRange(query.startIndex..., in: query),
+                withTemplate: " "
+            )
+        }
+        return TextNormalization.collapseWhitespace(query)
     }
 
     // MARK: - Risk

@@ -53,6 +53,13 @@ public struct AppSettings: Sendable, Equatable, Codable {
     public var cacheEnabled: Bool
     /// Show repaired Dutch beside the English, for learning.
     public var showSourceText: Bool
+    /// Look things up on the web before answering a question.
+    ///
+    /// On when a Tavily key is present. Costs one search per question, and
+    /// buys answers that rest on current figures rather than on whatever the
+    /// model remembers — which for rates, thresholds and prices is usually
+    /// both confident and out of date.
+    public var webSearchEnabled: Bool
     /// Check captured screens for phishing signals automatically.
     ///
     /// On by default and automatic on purpose: a scam check you have to
@@ -67,6 +74,7 @@ public struct AppSettings: Sendable, Equatable, Codable {
         cacheEnabled: Bool = true,
         showSourceText: Bool = false,
         riskCheckEnabled: Bool = true,
+        webSearchEnabled: Bool = true,
         defaultRegister: Register = .formal
     ) {
         self.cloudEnabled = cloudEnabled
@@ -74,6 +82,7 @@ public struct AppSettings: Sendable, Equatable, Codable {
         self.cacheEnabled = cacheEnabled
         self.showSourceText = showSourceText
         self.riskCheckEnabled = riskCheckEnabled
+        self.webSearchEnabled = webSearchEnabled
         self.defaultRegister = defaultRegister
     }
 

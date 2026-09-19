@@ -10,13 +10,19 @@ import Security
 /// re-signing a free developer account requires.
 public enum Keychain {
 
-    private static let service = "com.nllens.nebius"
-    private static let account = "api-key"
+    private static let service = "com.nllens.keys"
 
-    public static func setAPIKey(_ key: String) {
+    /// Which key. Both live in the keychain rather than in a file, and both
+    /// survive the weekly re-signing a free developer account requires.
+    public enum Account: String {
+        case nebius = "nebius-api-key"
+        case tavily = "tavily-api-key"
+    }
+
+    public static func set(_ key: String, for account: Account = .nebius) {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            deleteAPIKey()
+            delete(account)
             return
         }
         guard let data = trimmed.data(using: .utf8) else { return }
@@ -24,7 +30,7 @@ public enum Keychain {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
+            kSecAttrAccount as String: account.rawValue,
         ]
         SecItemDelete(query as CFDictionary)
 
@@ -36,11 +42,11 @@ public enum Keychain {
         SecItemAdd(attributes as CFDictionary, nil)
     }
 
-    public static func apiKey() -> String? {
+    public static func key(for account: Account = .nebius) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
+            kSecAttrAccount as String: account.rawValue,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
@@ -53,11 +59,11 @@ public enum Keychain {
         return value
     }
 
-    public static func deleteAPIKey() {
+    public static func delete(_ account: Account = .nebius) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
+            kSecAttrAccount as String: account.rawValue,
         ]
         SecItemDelete(query as CFDictionary)
     }
@@ -68,6 +74,10 @@ public enum Keychain {
     /// lives in a file in the repo, and the keychain survives the weekly
     /// re-signing a free developer account requires.
     public static func resolvedAPIKey() -> String {
-        apiKey() ?? ""
+        key(for: .nebius) ?? ""
+    }
+
+    public static func resolvedSearchKey() -> String {
+        key(for: .tavily) ?? ""
     }
 }

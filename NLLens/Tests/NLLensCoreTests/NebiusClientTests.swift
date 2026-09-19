@@ -236,3 +236,80 @@ final class ResponseFormatTests: XCTestCase {
         XCTAssertEqual(transport.requestCount, 1)
     }
 }
+
+/// The chat failure that shipped: a reasoning model given a small budget spent
+/// it all thinking, returned HTTP 200 with an empty `content`, and the app said
+/// "the model returned nothing" — sending the user to look for a bug in their
+/// question rather than at the token budget.
+final class CompletionExtractionTests: XCTestCase {
+
+    private var client: NebiusClient {
+        .test(transport: MockTransport(stubs: []))
+    }
+
+    private func body(_ message: [String: Any], finish: String? = nil) -> Data {
+        var choice: [String: Any] = ["message": message]
+        if let finish { choice["finish_reason"] = finish }
+        return try! JSONSerialization.data(withJSONObject: ["choices": [choice]])
+    }
+
+    func testPlainContent() throws {
+        XCTAssertEqual(
+            try client.extractContent(from: body(["content": "  hello  "])), "hello"
+        )
+    }
+
+    func testEmptyContentCutShortIsReportedAsTruncation() throws {
+        // The actual bug. This must not read as "returned nothing".
+        XCTAssertThrowsError(
+            try client.extractContent(from: body(["content": ""], finish: "length"))
+        ) { error in
+            XCTAssertEqual(error as? NebiusError, .truncated)
+        }
+    }
+
+    func testTruncationMessagePointsAtTheRealCause() {
+        XCTAssertTrue(
+            NebiusError.truncated.userMessage.lowercased().contains("ran out of room")
+        )
+    }
+
+    func testReasoningContentIsUsedRatherThanDiscarded() throws {
+        // Some models put everything in the reasoning channel. A verbose
+        // answer beats no answer.
+        let text = try client.extractContent(
+            from: body(["content": "", "reasoning_content": "The answer is B."])
+        )
+        XCTAssertEqual(text, "The answer is B.")
+    }
+
+    func testContentWinsOverReasoning() throws {
+        let text = try client.extractContent(
+            from: body(["content": "Final answer.", "reasoning_content": "thinking…"])
+        )
+        XCTAssertEqual(text, "Final answer.")
+    }
+
+    func testGenuinelyEmptyStillReportsEmpty() throws {
+        XCTAssertThrowsError(try client.extractContent(from: body(["content": ""]))) { error in
+            XCTAssertEqual(error as? NebiusError, .emptyCompletion)
+        }
+    }
+
+    func testTruncationOutranksReasoningFallback() throws {
+        // Cut off mid-thought: the thought is not an answer.
+        XCTAssertThrowsError(
+            try client.extractContent(
+                from: body(["content": "", "reasoning_content": ""], finish: "length")
+            )
+        ) { error in
+            XCTAssertEqual(error as? NebiusError, .truncated)
+        }
+    }
+
+    func testNoneOfTheseErrorsRetry() {
+        // Retrying an empty or truncated reply just spends money again.
+        XCTAssertFalse(NebiusError.truncated.isRetryable)
+        XCTAssertFalse(NebiusError.emptyCompletion.isRetryable)
+    }
+}

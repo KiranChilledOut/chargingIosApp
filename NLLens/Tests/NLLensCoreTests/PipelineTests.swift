@@ -329,7 +329,7 @@ final class ChatPipelineTests: XCTestCase {
         conversation.append(role: .user, text: "Which box do I tick?")
 
         let reply = try await pipeline(transport).answer(in: conversation)
-        XCTAssertTrue(reply.contains("option B"))
+        XCTAssertTrue(reply.text.contains("option B"))
     }
 
     func testScreenTextIsRedactedBeforeSending() async throws {
@@ -377,7 +377,7 @@ final class ChatPipelineTests: XCTestCase {
         conversation.append(role: .user, text: "Which account?")
 
         let reply = try await pipeline(transport).answer(in: conversation)
-        XCTAssertEqual(reply, "Yes, NL91ABNA0417164300 is the account shown.")
+        XCTAssertEqual(reply.text, "Yes, NL91ABNA0417164300 is the account shown.")
     }
 
     func testCloudDisabledBlocksChatEntirely() async {

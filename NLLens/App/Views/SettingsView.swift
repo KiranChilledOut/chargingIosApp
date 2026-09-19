@@ -4,6 +4,7 @@ import NLLensCore
 struct SettingsView: View {
 
     @State private var apiKey = ""
+    @State private var searchKey = ""
     @State private var settings = AppEnvironment.shared.settings
     @State private var textModel = AppEnvironment.shared.textModel
     @State private var visionModel = AppEnvironment.shared.visionModel
@@ -23,7 +24,7 @@ struct SettingsView: View {
                         .textInputAutocapitalization(.never)
 
                     Button("Save key") {
-                        Keychain.setAPIKey(apiKey)
+                        Keychain.set(apiKey, for: .nebius)
                         savedConfirmation = true
                     }
                     .disabled(apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -49,6 +50,25 @@ struct SettingsView: View {
                     Text("Behaviour")
                 } footer: {
                     Text("Remembered translations are served instantly and offline, and cost nothing to repeat.")
+                }
+
+                Section {
+                    SecureField("Tavily API key", text: $searchKey)
+                        .textContentType(.password)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+
+                    Button("Save search key") {
+                        Keychain.set(searchKey, for: .tavily)
+                        savedConfirmation = true
+                    }
+                    .disabled(searchKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                    Toggle("Look things up before answering", isOn: $settings.webSearchEnabled)
+                } header: {
+                    Text("Web search")
+                } footer: {
+                    Text("With a Tavily key, questions are checked against the current web before being answered — rates, thresholds and prices change every year, and a remembered figure is confidently wrong. One search per question. Get a key at tavily.com.")
                 }
 
                 Section {

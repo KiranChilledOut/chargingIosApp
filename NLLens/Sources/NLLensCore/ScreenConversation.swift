@@ -78,8 +78,15 @@ public struct ScreenConversation: Sendable, Equatable, Codable {
 
     /// The system message: who the model is, and everything known about the
     /// screen.
-    public func systemMessage(instructions: String) -> String {
+    public func systemMessage(
+        instructions: String,
+        searchGrounding: String = ""
+    ) -> String {
         var parts = [instructions]
+
+        if !searchGrounding.isEmpty {
+            parts.append(searchGrounding)
+        }
 
         if !visualReading.isEmpty {
             parts.append("What this screen appears to be:\n\(visualReading)")
@@ -97,9 +104,12 @@ public struct ScreenConversation: Sendable, Equatable, Codable {
     /// recent history as the budget allows.
     public func requestMessages(
         instructions: String,
+        searchGrounding: String = "",
         historyBudget: Int = defaultHistoryBudget
     ) -> [ChatMessage] {
-        var result: [ChatMessage] = [.system(systemMessage(instructions: instructions))]
+        var result: [ChatMessage] = [.system(
+            systemMessage(instructions: instructions, searchGrounding: searchGrounding)
+        )]
 
         for message in recentHistory(budget: historyBudget) {
             result.append(ChatMessage(

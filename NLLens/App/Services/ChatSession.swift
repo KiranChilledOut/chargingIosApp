@@ -10,6 +10,8 @@ final class ChatSession: ObservableObject {
     @Published private(set) var isAnswering = false
     @Published var errorMessage: String?
     @Published var draft = ""
+    /// What each answer was checked against, so the reader can follow it up.
+    @Published private(set) var sources: [UUID: [WebSearchResult]] = [:]
 
     private let environment: AppEnvironment
 
@@ -29,6 +31,12 @@ final class ChatSession: ObservableObject {
     }
 
     var messages: [ConversationMessage] { conversation.messages }
+
+    /// True while a lookup may be running, so the wait can be explained rather
+    /// than just being longer than usual.
+    var isSearching: Bool {
+        isAnswering && environment.hasSearchKey && environment.settings.webSearchEnabled
+    }
     var isEmpty: Bool { conversation.isEmpty }
 
     /// Terms found on this screen, offered as openers so the first question
@@ -69,8 +77,12 @@ final class ChatSession: ObservableObject {
 
         do {
             let pipeline = await environment.pipeline()
-            let reply = try await pipeline.answer(in: conversation)
-            conversation.append(role: .assistant, text: reply)
+            let answer = try await pipeline.answer(in: conversation)
+            conversation.append(role: .assistant, text: answer.text)
+
+            if let id = conversation.messages.last?.id, !answer.sources.isEmpty {
+                sources[id] = answer.sources
+            }
         } catch {
             // Drop the question rather than leave it sitting in the history
             // looking answered, and put it back in the field so it is not lost.

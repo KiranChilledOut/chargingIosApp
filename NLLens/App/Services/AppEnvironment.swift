@@ -77,6 +77,9 @@ public final class AppEnvironment: @unchecked Sendable {
     public var apiKey: String { Keychain.resolvedAPIKey() }
     public var hasAPIKey: Bool { !apiKey.isEmpty }
 
+    public var searchKey: String { Keychain.resolvedSearchKey() }
+    public var hasSearchKey: Bool { !searchKey.isEmpty }
+
     // MARK: - Assembly
 
     public var configuration: NebiusConfiguration {
@@ -89,6 +92,12 @@ public final class AppEnvironment: @unchecked Sendable {
 
     public var client: NebiusClient {
         NebiusClient(configuration: configuration)
+    }
+
+    /// Nil without a key, which is what turns the lookup step off.
+    public var searchClient: TavilyClient? {
+        guard hasSearchKey else { return nil }
+        return TavilyClient(apiKey: searchKey)
     }
 
     /// The shared cache, loaded from disk exactly once per process.
@@ -115,7 +124,8 @@ public final class AppEnvironment: @unchecked Sendable {
             client: client,
             cache: settings.cacheEnabled ? await cache() : nil,
             settings: settings,
-            textModel: textModel
+            textModel: textModel,
+            search: searchClient
         )
     }
 }

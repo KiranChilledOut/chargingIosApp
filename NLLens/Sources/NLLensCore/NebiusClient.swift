@@ -8,13 +8,16 @@ public enum NebiusError: Swift.Error, Equatable {
     case clientError(status: Int, message: String)
     case invalidResponse
     case emptyCompletion
+    /// The reply was cut off by the token budget before any answer emerged.
+    case truncated
 
     /// Whether another attempt could plausibly succeed.
     public var isRetryable: Bool {
         switch self {
         case .rateLimited, .serverError:
             return true
-        case .missingAPIKey, .unauthorized, .clientError, .invalidResponse, .emptyCompletion:
+        case .missingAPIKey, .unauthorized, .clientError, .invalidResponse,
+             .emptyCompletion, .truncated:
             return false
         }
     }
@@ -35,6 +38,8 @@ public enum NebiusError: Swift.Error, Equatable {
             return "Unexpected response from Nebius."
         case .emptyCompletion:
             return "The model returned nothing. Try again."
+        case .truncated:
+            return "The model ran out of room before answering. Try a shorter question, or pick a different text model in Settings."
         }
     }
 }
@@ -346,6 +351,15 @@ public struct NebiusClient: Sendable {
         ))
     }
 
+    /// Pulls the answer out of a completion.
+    ///
+    /// Reasoning models are the complication. They think into a separate
+    /// `reasoning_content` field, and when the token budget runs out mid-thought
+    /// `content` comes back as an empty string — a successful HTTP 200 carrying
+    /// nothing. Reporting that as "the model returned nothing" sends the user
+    /// looking for a bug in their question rather than raising the budget, so
+    /// truncation is named for what it is, and reasoning text is used as a last
+    /// resort rather than thrown away.
     func extractContent(from body: Data) throws -> String {
         guard
             let root = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
@@ -356,20 +370,34 @@ public struct NebiusClient: Sendable {
             throw NebiusError.invalidResponse
         }
 
-        // Content is usually a string, but reasoning-style models sometimes
-        // return an array of parts.
+        if let text = Self.textContent(of: message) { return text }
+
+        // Nothing in `content`. If the reply was cut short, say so.
+        let finishReason = first["finish_reason"] as? String
+        if finishReason == "length" { throw NebiusError.truncated }
+
+        // Some models put everything in the reasoning channel. Better a
+        // verbose answer than none.
+        if let reasoning = (message["reasoning_content"] as? String)
+            ?? (message["reasoning"] as? String) {
+            let trimmed = reasoning.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return trimmed }
+        }
+        throw NebiusError.emptyCompletion
+    }
+
+    /// Non-empty text from `content`, in whichever shape it arrived.
+    private static func textContent(of message: [String: Any]) -> String? {
         if let text = message["content"] as? String {
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { throw NebiusError.emptyCompletion }
-            return trimmed
+            return trimmed.isEmpty ? nil : trimmed
         }
         if let parts = message["content"] as? [[String: Any]] {
             let joined = parts.compactMap { $0["text"] as? String }
                 .joined(separator: "\n")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !joined.isEmpty else { throw NebiusError.emptyCompletion }
-            return joined
+            return joined.isEmpty ? nil : joined
         }
-        throw NebiusError.invalidResponse
+        return nil
     }
 }
