@@ -281,10 +281,15 @@ public struct TranslationPipeline: Sendable {
             question: safeConversation.messages.last?.text, force: forceSearch
         )
 
+        // The model is told the outcome either way. Handed an empty grounding
+        // string and no explanation, it invents one — and what it invents is
+        // that it has no search tool at all.
+        let grounding = found?.grounding() ?? status.modelNote
+
         let raw = try await client.complete(
             messages: safeConversation.requestMessages(
                 instructions: Prompts.chatSystem,
-                searchGrounding: found?.grounding() ?? ""
+                searchGrounding: grounding
             ),
             model: model ?? textModel,
             temperature: 0.3,

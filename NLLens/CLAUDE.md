@@ -293,6 +293,29 @@ confidently is the most damaging thing this app can produce.
   trailing space 200. `normalizeKey` pulls the key out of a URL and strips
   quotes, so either form works; `looksLikeKey` lets Settings say so at save
   time instead of leaving it to fail at the first question.
+- **Tavily's 401 carries no diagnosis, so the app must not invent one.**
+  Verified against the live endpoint: a rotated key, a mistyped key, a key
+  from another account, a key wrapped in quotes and *no Authorization header
+  at all* every return `401 {"detail":{"error":"Unauthorized: missing or
+  invalid API key."}}` — byte for byte identical. An earlier message asserted
+  the MCP URL had been pasted and sent a user to re-check something already
+  correct. The message now names no cause and points at `check()`, which runs
+  a real request and is the only thing that can tell these apart.
+- **432 and 433 are not key failures.** They are the plan limit and the
+  pay-as-you-go ceiling: the key is valid and the account is out. Folding them
+  into a generic server error hides the one fact that explains the failure.
+- **The saved key is shown masked in Settings.** The field is empty on every
+  launch, so there was no way to see which key was actually stored — and a
+  rotated key fails exactly like a wrong one. `preview(of:)` shows head, tail
+  and length: enough to compare against the dashboard, never the middle.
+- **`Keychain.set` returns whether it stored anything.** The result was
+  discarded, so a failed write still showed "Saved" while the old value stayed
+  — invisible, and indistinguishable later from a rejected key.
+- **A failed lookup is described to the model, not left blank.** Handed an
+  empty grounding string, the model explained the gap itself: *"I don't have a
+  search tool connected in this conversation."* Wrong, and it makes a working
+  feature sound missing. `SearchStatus.modelNote` states what happened, so the
+  answer flags its own staleness instead of disowning the feature.
 - **There is no MCP client here, deliberately.** Tavily's MCP endpoint speaks
   JSON-RPC over SSE and returns the search result as a JSON string inside a
   text content part — an extra transport, an extra envelope and a double

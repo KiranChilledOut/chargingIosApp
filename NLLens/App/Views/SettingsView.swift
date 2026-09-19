@@ -6,6 +6,11 @@ struct SettingsView: View {
     @State private var apiKey = ""
     @State private var searchKey = ""
     @State private var searchKeyWarning: String?
+    @State private var keyCheck: TavilyKeyCheck?
+    @State private var isCheckingKey = false
+    /// Masked, and read from the keychain rather than the field — the field
+    /// starts empty on every launch, so it cannot show what is actually saved.
+    @State private var storedKeyPreview = TavilyClient.preview(of: Keychain.resolvedSearchKey())
     @State private var settings = AppEnvironment.shared.settings
     @State private var textModel = AppEnvironment.shared.textModel
     @State private var visionModel = AppEnvironment.shared.visionModel
@@ -64,12 +69,23 @@ struct SettingsView: View {
                         // URL is what Tavily gives you, so it is what gets
                         // pasted.
                         let normalized = TavilyClient.normalizeKey(searchKey)
-                        Keychain.set(normalized, for: .tavily)
+                        let stored = Keychain.set(normalized, for: .tavily)
                         searchKey = normalized
-                        searchKeyWarning = TavilyClient.looksLikeKey(normalized)
-                            ? nil
-                            : "That does not look like a Tavily key — they start with tvly-."
-                        savedConfirmation = true
+                        keyCheck = nil
+
+                        // Read back rather than echoing what was sent: the
+                        // preview is only useful if it shows what is actually
+                        // in the keychain.
+                        storedKeyPreview = TavilyClient.preview(of: Keychain.resolvedSearchKey())
+
+                        if !stored {
+                            searchKeyWarning = "The keychain refused to save that. Try again."
+                        } else if !TavilyClient.looksLikeKey(normalized) {
+                            searchKeyWarning = "That does not look like a Tavily key — they start with tvly-."
+                        } else {
+                            searchKeyWarning = nil
+                        }
+                        savedConfirmation = stored
                     }
                     .disabled(searchKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
@@ -79,11 +95,31 @@ struct SettingsView: View {
                             .foregroundStyle(.orange)
                     }
 
+                    LabeledContent("Saved key", value: storedKeyPreview)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+
+                    Button {
+                        Task { await checkSearchKey() }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Text("Test key")
+                            if isCheckingKey {
+                                ProgressView().controlSize(.small)
+                            }
+                        }
+                    }
+                    .disabled(isCheckingKey)
+
+                    if let keyCheck {
+                        KeyCheckRow(check: keyCheck)
+                    }
+
                     Toggle("Look things up before answering", isOn: $settings.webSearchEnabled)
                 } header: {
                     Text("Web search")
                 } footer: {
-                    Text("With a Tavily key, questions are checked against the current web before being answered — rates, thresholds and prices change every year, and a remembered figure is confidently wrong. One search per question. Paste either the key or the whole MCP URL — the key is pulled out of it. Get one at tavily.com.")
+                    Text("With a Tavily key, questions are checked against the current web before being answered — rates, thresholds and prices change every year, and a remembered figure is confidently wrong. One search per question. Paste either the key or the whole MCP URL — the key is pulled out of it. Get one at tavily.com, and use Test key to see whether it works.")
                 }
 
                 Section {
@@ -188,6 +224,54 @@ struct SettingsView: View {
         } catch {
             modelError = error.localizedDescription
         }
+    }
+
+    /// Asks Tavily what this key actually does.
+    ///
+    /// A failed search can only ever say "not accepted" — Tavily answers a
+    /// rotated key, a mistyped key and no key at all with the same 401 and the
+    /// same body. Running one real request here is the only way to separate
+    /// those from an exhausted plan, which is a 432 and not a key problem at
+    /// all.
+    private func checkSearchKey() async {
+        isCheckingKey = true
+        keyCheck = nil
+        defer { isCheckingKey = false }
+
+        // Deliberately from the keychain, not the text field: the field is
+        // empty on a fresh launch, and testing what is typed rather than what
+        // is saved would pass while the app keeps failing.
+        let stored = Keychain.resolvedSearchKey()
+        storedKeyPreview = TavilyClient.preview(of: stored)
+        keyCheck = await TavilyClient(apiKey: stored).check()
+    }
+}
+
+/// The outcome of a key test, said plainly enough to act on.
+private struct KeyCheckRow: View {
+    let check: TavilyKeyCheck
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(check.headline, systemImage: check.isWorking ? "checkmark.circle" : "xmark.circle")
+                .font(.callout.weight(.medium))
+                .foregroundStyle(check.isWorking ? Color.green : Color.orange)
+
+            if let advice = check.advice {
+                Text(advice)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            // Tavily's own words. Paraphrasing a server error is how a
+            // diagnosis turns into a guess.
+            if !check.serverMessage.isEmpty {
+                Text("Tavily said: \(check.serverMessage)")
+                    .font(.footnote)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.vertical, 2)
     }
 }
 

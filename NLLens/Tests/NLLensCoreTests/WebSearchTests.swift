@@ -90,7 +90,39 @@ final class TavilyClientTests: XCTestCase {
     func testStatusMapping() {
         XCTAssertEqual(TavilyClient.mapStatus(401), .unauthorized)
         XCTAssertEqual(TavilyClient.mapStatus(429), .rateLimited)
-        XCTAssertEqual(TavilyClient.mapStatus(500), .serverError(status: 500))
+        XCTAssertEqual(TavilyClient.mapStatus(500), .serverError(status: 500, message: ""))
+    }
+
+    /// 432 and 433 are documented as plan and pay-as-you-go limits. The key is
+    /// valid in both cases, so reporting them as a rejected key sends someone
+    /// off to regenerate a key that was never the problem.
+    func testQuotaCodesAreNotKeyFailures() {
+        let body = Data(#"{"detail":{"error":"This request exceeds your plan's set usage limit."}}"#.utf8)
+        XCTAssertEqual(
+            TavilyClient.mapStatus(432, body: body),
+            .outOfCredits(message: "This request exceeds your plan's set usage limit.")
+        )
+        XCTAssertEqual(
+            TavilyClient.mapStatus(433, body: Data()),
+            .outOfCredits(message: "")
+        )
+    }
+
+    /// Tavily nests the reason as `{"detail": {"error": ...}}` — an object,
+    /// where Nebius puts a bare string. Reading only one shape leaves the
+    /// reason blank exactly when it is needed.
+    func testTavilyErrorMessageIsExtracted() {
+        XCTAssertEqual(
+            TavilyClient.errorMessage(
+                from: Data(#"{"detail":{"error":"Unauthorized: missing or invalid API key."}}"#.utf8)
+            ),
+            "Unauthorized: missing or invalid API key."
+        )
+        XCTAssertEqual(
+            TavilyClient.errorMessage(from: Data(#"{"detail":"plain string"}"#.utf8)),
+            "plain string"
+        )
+        XCTAssertEqual(TavilyClient.errorMessage(from: Data("not json".utf8)), "")
     }
 
     func testUnauthorizedSurfaces() async {
@@ -194,6 +226,28 @@ final class SearchStatusTests: XCTestCase {
         XCTAssertEqual(answer.sources.count, 1)
     }
 
+    /// The wiring, not just the wording: a failed lookup has to reach the
+    /// model, or it goes on claiming it has no search tool.
+    func testTheFailureReachesTheSystemPrompt() async throws {
+        let chat = MockTransport(completion: "answered anyway")
+        _ = try await pipeline(
+            chat,
+            searchTransport: MockTransport(stubs: [.json("{}", status: 401)])
+        ).answer(in: conversation)
+
+        let body = try XCTUnwrap(chat.requests.first?.body)
+        let object = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+        let messages = try XCTUnwrap(object["messages"] as? [[String: Any]])
+        let system = try XCTUnwrap(messages.first?["content"] as? String)
+
+        XCTAssertTrue(
+            system.lowercased().contains("do not say you have no search tool"),
+            "the model must be told the lookup failed, not left to guess"
+        )
+    }
+
     func testNoKeyReportsUnavailableRatherThanSilence() async throws {
         let answer = try await pipeline(MockTransport(completion: "ok")).answer(in: conversation)
 
@@ -213,7 +267,7 @@ final class SearchStatusTests: XCTestCase {
         guard case .failed(let reason) = answer.searchStatus else {
             return XCTFail("expected failed, got \(answer.searchStatus)")
         }
-        XCTAssertTrue(reason.contains("rejected"), reason)
+        XCTAssertTrue(reason.contains("key"), "the note must name what failed: \(reason)")
     }
 
     func testSettingOffSkipsTheSearch() async throws {
@@ -372,10 +426,138 @@ final class TavilyKeyNormalizationTests: XCTestCase {
         )
     }
 
-    func testUnauthorizedMessageNamesTheActualMistake() {
-        XCTAssertTrue(
-            WebSearchError.unauthorized.userMessage.contains("tvly-"),
-            "the message should say what a key looks like"
+    /// The first version of this message asserted the MCP URL was pasted.
+    /// Tavily returns an identical 401 for a rotated key, a mistyped key, a
+    /// key from another account and no key at all, so naming one cause is a
+    /// guess presented as a diagnosis — and it sent a real user to re-check
+    /// something that was already correct.
+    func testUnauthorizedMessageDoesNotGuessACause() {
+        let message = WebSearchError.unauthorized.userMessage
+        XCTAssertFalse(message.contains("MCP"), "the response cannot support that claim")
+        XCTAssertTrue(message.contains("Test key"), "point at the check instead")
+    }
+}
+
+/// A failed search cannot say why it failed — Tavily's 401 is identical for
+/// every cause. `check()` is the only thing that can, so it carries the weight
+/// of the whole diagnosis.
+final class TavilyKeyCheckTests: XCTestCase {
+
+    private let key = "tvly-prod-abc123DEF456xyz789"
+
+    private func client(_ transport: MockTransport, key: String? = nil) -> TavilyClient {
+        TavilyClient(apiKey: key ?? self.key, transport: transport)
+    }
+
+    func testWorkingKeyReportsResultCount() async {
+        let body = #"{"results":[{"url":"https://a.nl","title":"A","content":"x"}]}"#
+        let check = await client(MockTransport(stubs: [.json(body)])).check()
+        XCTAssertTrue(check.isWorking)
+        XCTAssertEqual(check.outcome, .working(resultCount: 1))
+        XCTAssertNil(check.advice, "nothing to do when it works")
+    }
+
+    func testRejectedKeyNamesEveryCauseRatherThanGuessingOne() async {
+        let body = #"{"detail":{"error":"Unauthorized: missing or invalid API key."}}"#
+        let check = await client(MockTransport(stubs: [.json(body, status: 401)])).check()
+
+        XCTAssertEqual(check.outcome, .rejected)
+        let advice = check.advice ?? ""
+        XCTAssertTrue(advice.contains("rotated"))
+        XCTAssertTrue(advice.contains("mistyped"))
+        XCTAssertTrue(advice.contains("different account"))
+    }
+
+    func testOutOfCreditsIsNotReportedAsABadKey() async {
+        let body = #"{"detail":{"error":"This request exceeds your plan's set usage limit."}}"#
+        let check = await client(MockTransport(stubs: [.json(body, status: 432)])).check()
+
+        XCTAssertEqual(check.outcome, .outOfCredits)
+        XCTAssertTrue(check.headline.contains("valid"), "the key is fine; the plan is not")
+        XCTAssertEqual(check.serverMessage, "This request exceeds your plan's set usage limit.")
+    }
+
+    func testNoKeyIsDistinctFromARejectedOne() async {
+        let transport = MockTransport(stubs: [])
+        let check = await client(transport, key: "").check()
+        XCTAssertEqual(check.outcome, .noKey)
+        XCTAssertEqual(transport.requestCount, 0, "nothing to test, so nothing is sent")
+    }
+
+    func testAStoredNonKeyIsNamedForWhatItIs() async {
+        let transport = MockTransport(stubs: [])
+        // A URL with no key parameter survives normalization intact, and is
+        // worth catching before spending a request on it.
+        let check = await client(transport, key: "https://mcp.tavily.com/mcp/").check()
+        XCTAssertEqual(check.outcome, .notAKey(looksLike: "a web address"))
+        XCTAssertEqual(transport.requestCount, 0)
+    }
+
+    func testShapeNamesWhatWasStored() {
+        XCTAssertEqual(TavilyClient.shape(of: "https://x.nl"), "a web address")
+        XCTAssertEqual(TavilyClient.shape(of: "my key is here"), "a sentence")
+        XCTAssertEqual(TavilyClient.shape(of: "garbage"), "ordinary text")
+        XCTAssertEqual(TavilyClient.shape(of: "   "), "nothing")
+    }
+}
+
+/// The Settings field starts empty on every launch, so there is no way to see
+/// which key is actually stored — and a rotated key fails exactly like a wrong
+/// one. The preview is what makes the two distinguishable.
+final class TavilyKeyPreviewTests: XCTestCase {
+
+    func testPreviewShowsEnoughToCompareAgainstTheDashboard() {
+        let preview = TavilyClient.preview(of: "tvly-prod-abc123DEF456xyz789")
+        XCTAssertTrue(preview.hasPrefix("tvly-prod-"))
+        XCTAssertTrue(preview.contains("z789"), "the tail is what distinguishes two keys")
+        XCTAssertTrue(preview.contains("28 characters"))
+    }
+
+    func testPreviewNeverShowsTheMiddleOfTheKey() {
+        let key = "tvly-prod-SECRETMIDDLEPART1234"
+        let preview = TavilyClient.preview(of: key)
+        XCTAssertFalse(preview.contains("SECRETMIDDLE"))
+        XCTAssertFalse(preview.contains(key))
+    }
+
+    func testPreviewOfAURLShowsTheExtractedKey() {
+        let preview = TavilyClient.preview(
+            of: "https://mcp.tavily.com/mcp/?tavilyApiKey=tvly-prod-abc123DEF456xyz789"
         )
+        XCTAssertTrue(preview.hasPrefix("tvly-prod-"))
+        XCTAssertFalse(preview.contains("mcp.tavily.com"))
+    }
+
+    func testEmptyAndShortValuesAreDescribedPlainly() {
+        XCTAssertEqual(TavilyClient.preview(of: "   "), "nothing saved")
+        XCTAssertTrue(TavilyClient.preview(of: "tvly-abc").contains("too short"))
+    }
+}
+
+/// A failed lookup used to reach the model as an empty string, so the model
+/// explained the gap itself — with "I don't have a search tool connected in
+/// this conversation", which is wrong and makes a working feature sound
+/// missing. The outcome is now stated.
+final class SearchModelNoteTests: XCTestCase {
+
+    func testASuccessfulSearchNeedsNoNote() {
+        XCTAssertEqual(SearchStatus.searched(count: 3).modelNote, "")
+        XCTAssertEqual(SearchStatus.skipped.modelNote, "")
+    }
+
+    func testAFailedLookupIsExplainedRatherThanDisowned() {
+        let note = SearchStatus.failed("Tavily did not accept this key.").modelNote
+        XCTAssertTrue(note.contains("Tavily did not accept this key."), "carry the reason")
+        XCTAssertTrue(note.contains("failed"))
+        XCTAssertTrue(
+            note.lowercased().contains("do not say you have no search tool"),
+            "the exact failure mode seen on device"
+        )
+    }
+
+    func testAMissingKeyIsNotReportedAsAnInability() {
+        let note = SearchStatus.unavailable.modelNote
+        XCTAssertTrue(note.contains("no search key"))
+        XCTAssertTrue(note.lowercased().contains("do not say you are unable to search"))
     }
 }

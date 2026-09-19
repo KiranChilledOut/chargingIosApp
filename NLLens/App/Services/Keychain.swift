@@ -19,13 +19,20 @@ public enum Keychain {
         case tavily = "tavily-api-key"
     }
 
-    public static func set(_ key: String, for account: Account = .nebius) {
+    /// Returns whether the key was actually stored.
+    ///
+    /// The result used to be discarded. A keychain write can fail, and when it
+    /// did the interface still said "Saved" while the old value stayed in
+    /// place — invisible, because the field is empty again on the next launch.
+    /// A silent failure here looks exactly like a rejected key later.
+    @discardableResult
+    public static func set(_ key: String, for account: Account = .nebius) -> Bool {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             delete(account)
-            return
+            return true
         }
-        guard let data = trimmed.data(using: .utf8) else { return }
+        guard let data = trimmed.data(using: .utf8) else { return false }
 
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -39,7 +46,7 @@ public enum Keychain {
         // Available in the background so an App Intent can run while locked
         // is *not* wanted here; require a first unlock instead.
         attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        SecItemAdd(attributes as CFDictionary, nil)
+        return SecItemAdd(attributes as CFDictionary, nil) == errSecSuccess
     }
 
     public static func key(for account: Account = .nebius) -> String? {
