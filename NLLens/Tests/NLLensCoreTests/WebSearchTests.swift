@@ -291,3 +291,91 @@ final class SearchStatusTests: XCTestCase {
         XCTAssertNotNil(SearchStatus.failed("x").note)
     }
 }
+
+/// Tavily hands out an MCP URL with the key embedded, so that URL is what gets
+/// copied — and pasting it whole returns "Unauthorized: missing or invalid API
+/// key", which reads as a bad key rather than the wrong kind of value.
+/// Verified against the live endpoint: the URL form is a 401, the bare key a
+/// 200.
+final class TavilyKeyNormalizationTests: XCTestCase {
+
+    private let key = "tvly-prod-abc123DEF456"
+
+    func testBareKeyIsUnchanged() {
+        XCTAssertEqual(TavilyClient.normalizeKey(key), key)
+    }
+
+    func testKeyIsExtractedFromTheMCPURL() {
+        let url = "https://mcp.tavily.com/mcp/?tavilyApiKey=\(key)"
+        XCTAssertEqual(TavilyClient.normalizeKey(url), key)
+    }
+
+    func testExtractionIsCaseInsensitiveOnTheParameter() {
+        XCTAssertEqual(
+            TavilyClient.normalizeKey("https://mcp.tavily.com/mcp/?TavilyApiKey=\(key)"), key
+        )
+        XCTAssertEqual(
+            TavilyClient.normalizeKey("https://api.tavily.com/search?api_key=\(key)"), key
+        )
+    }
+
+    func testExtractionSurvivesExtraParameters() {
+        XCTAssertEqual(
+            TavilyClient.normalizeKey(
+                "https://mcp.tavily.com/mcp/?foo=1&tavilyApiKey=\(key)&bar=2"
+            ),
+            key
+        )
+    }
+
+    func testWhitespaceAndNewlinesAreStripped() {
+        XCTAssertEqual(TavilyClient.normalizeKey("  \(key)\n"), key)
+    }
+
+    func testSurroundingQuotesAreStripped() {
+        // A 401 on the live endpoint, and free with any copy that grabbed a
+        // surrounding string literal.
+        XCTAssertEqual(TavilyClient.normalizeKey("\"\(key)\""), key)
+        XCTAssertEqual(TavilyClient.normalizeKey("'\(key)'"), key)
+    }
+
+    func testAURLWithNoKeyParameterIsLeftAlone() {
+        let url = "https://mcp.tavily.com/mcp/"
+        XCTAssertEqual(TavilyClient.normalizeKey(url), url)
+    }
+
+    func testEmptyStaysEmpty() {
+        XCTAssertEqual(TavilyClient.normalizeKey("   "), "")
+    }
+
+    func testClientNormalizesOnConstruction() async throws {
+        let transport = MockTransport(stubs: [.json(#"{"results":[]}"#)])
+        let client = TavilyClient(
+            apiKey: "https://mcp.tavily.com/mcp/?tavilyApiKey=\(key)",
+            transport: transport
+        )
+        XCTAssertTrue(client.isUsable)
+
+        _ = try await client.search("anything")
+        XCTAssertEqual(
+            transport.requests.first?.headers["Authorization"], "Bearer \(key)",
+            "the URL must never reach the Authorization header"
+        )
+    }
+
+    func testAURLWithoutAKeyIsNotUsableAsOne() {
+        XCTAssertFalse(TavilyClient.looksLikeKey("https://mcp.tavily.com/mcp/"))
+        XCTAssertFalse(TavilyClient.looksLikeKey("hello"))
+        XCTAssertTrue(TavilyClient.looksLikeKey(key))
+        XCTAssertTrue(
+            TavilyClient.looksLikeKey("https://mcp.tavily.com/mcp/?tavilyApiKey=\(key)")
+        )
+    }
+
+    func testUnauthorizedMessageNamesTheActualMistake() {
+        XCTAssertTrue(
+            WebSearchError.unauthorized.userMessage.contains("tvly-"),
+            "the message should say what a key looks like"
+        )
+    }
+}

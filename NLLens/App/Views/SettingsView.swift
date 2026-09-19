@@ -5,6 +5,7 @@ struct SettingsView: View {
 
     @State private var apiKey = ""
     @State private var searchKey = ""
+    @State private var searchKeyWarning: String?
     @State private var settings = AppEnvironment.shared.settings
     @State private var textModel = AppEnvironment.shared.textModel
     @State private var visionModel = AppEnvironment.shared.visionModel
@@ -59,16 +60,30 @@ struct SettingsView: View {
                         .textInputAutocapitalization(.never)
 
                     Button("Save search key") {
-                        Keychain.set(searchKey, for: .tavily)
+                        // Accepts the MCP URL as well as the bare key; the
+                        // URL is what Tavily gives you, so it is what gets
+                        // pasted.
+                        let normalized = TavilyClient.normalizeKey(searchKey)
+                        Keychain.set(normalized, for: .tavily)
+                        searchKey = normalized
+                        searchKeyWarning = TavilyClient.looksLikeKey(normalized)
+                            ? nil
+                            : "That does not look like a Tavily key — they start with tvly-."
                         savedConfirmation = true
                     }
                     .disabled(searchKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                    if let searchKeyWarning {
+                        Label(searchKeyWarning, systemImage: "exclamationmark.triangle")
+                            .font(.callout)
+                            .foregroundStyle(.orange)
+                    }
 
                     Toggle("Look things up before answering", isOn: $settings.webSearchEnabled)
                 } header: {
                     Text("Web search")
                 } footer: {
-                    Text("With a Tavily key, questions are checked against the current web before being answered — rates, thresholds and prices change every year, and a remembered figure is confidently wrong. One search per question. Get a key at tavily.com.")
+                    Text("With a Tavily key, questions are checked against the current web before being answered — rates, thresholds and prices change every year, and a remembered figure is confidently wrong. One search per question. Paste either the key or the whole MCP URL — the key is pulled out of it. Get one at tavily.com.")
                 }
 
                 Section {

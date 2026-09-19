@@ -284,6 +284,20 @@ confidently is the most damaging thing this app can produce.
 - The globe in the composer forces a lookup for one question, then resets —
   a decision about the question, not a mode you forget is on.
 - No key means no `TavilyClient`, which is what turns the step off.
+- **The key is normalised on the way in, not demanded of the user.** Tavily
+  hands out an MCP URL with the key embedded (`?tavilyApiKey=tvly-...`), so
+  that URL is what gets copied and pasted into Settings. Sending it as the
+  credential returns `Unauthorized: missing or invalid API key`, which reads
+  as a bad key rather than the wrong *kind* of value — confirmed against the
+  live endpoint: bare key 200, whole URL 401, quoted key 401, key with a
+  trailing space 200. `normalizeKey` pulls the key out of a URL and strips
+  quotes, so either form works; `looksLikeKey` lets Settings say so at save
+  time instead of leaving it to fail at the first question.
+- **There is no MCP client here, deliberately.** Tavily's MCP endpoint speaks
+  JSON-RPC over SSE and returns the search result as a JSON string inside a
+  text content part — an extra transport, an extra envelope and a double
+  decode, for a payload the REST endpoint returns directly (and more of it:
+  the MCP shape drops `answer`). REST stays.
 
 ## Reasoning models return empty content
 

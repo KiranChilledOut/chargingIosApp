@@ -91,7 +91,7 @@ public enum WebSearchError: Swift.Error, Equatable {
         case .missingAPIKey:
             return "No Tavily API key set. Add one in Settings to look things up."
         case .unauthorized:
-            return "Tavily rejected the API key. Check it in Settings."
+            return "Tavily rejected the API key. Paste the key itself (it starts with tvly-), not the whole MCP URL."
         case .rateLimited:
             return "Tavily rate limit reached. Try again shortly."
         case .serverError(let status):
@@ -118,14 +118,45 @@ public struct TavilyClient: Sendable {
         transport: any HTTPTransport = URLSessionTransport(),
         timeout: TimeInterval = 20
     ) {
-        self.apiKey = apiKey
+        self.apiKey = Self.normalizeKey(apiKey)
         self.baseURL = baseURL
         self.transport = transport
         self.timeout = timeout
     }
 
-    public var isUsable: Bool {
-        !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    public var isUsable: Bool { !apiKey.isEmpty }
+
+    /// Pulls a usable key out of whatever was pasted.
+    ///
+    /// Tavily hands out an MCP URL with the key embedded in it, so that URL is
+    /// what people copy — and pasting it whole produces
+    /// "Unauthorized: missing or invalid API key", which reads as a bad key
+    /// rather than the wrong *kind* of value. Quotes do the same, and come
+    /// along free from any copy that grabbed a surrounding string literal.
+    ///
+    /// Demanding the bare key was friction with no upside: the key is right
+    /// there in the URL, and extracting it is this function's job rather than
+    /// the user's.
+    public static func normalizeKey(_ raw: String) -> String {
+        var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // A URL — take the query parameter out of it.
+        if value.lowercased().hasPrefix("http"),
+           let components = URLComponents(string: value),
+           let key = components.queryItems?.first(where: {
+               $0.name.lowercased() == "tavilyapikey" || $0.name.lowercased() == "api_key"
+           })?.value {
+            value = key
+        }
+
+        value = value.trimmingCharacters(in: CharacterSet(charactersIn: "\"' "))
+        return value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Whether this looks like a Tavily key at all, so a wrong-kind-of-value
+    /// can be named as such instead of arriving as a bare auth failure.
+    public static func looksLikeKey(_ raw: String) -> Bool {
+        normalizeKey(raw).lowercased().hasPrefix("tvly-")
     }
 
     public func search(
