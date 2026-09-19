@@ -152,3 +152,142 @@ final class TavilyClientTests: XCTestCase {
         )
     }
 }
+
+/// The failure this exists to prevent: a model politely explaining that it
+/// cannot search is indistinguishable from a search that ran and found
+/// nothing. The status is what tells them apart.
+final class SearchStatusTests: XCTestCase {
+
+    private func pipeline(
+        _ transport: MockTransport,
+        searchTransport: MockTransport? = nil,
+        searchKey: String = "tvly-test",
+        settings: AppSettings = .default
+    ) -> TranslationPipeline {
+        TranslationPipeline(
+            client: .test(transport: transport),
+            cache: nil,
+            settings: settings,
+            textModel: "configured/model",
+            search: searchTransport.map {
+                TavilyClient(apiKey: searchKey, transport: $0)
+            }
+        )
+    }
+
+    private var conversation: ScreenConversation {
+        var c = ScreenConversation(screenText: "Energy contract")
+        c.append(role: .user, text: "Is this a good rate?")
+        return c
+    }
+
+    private let searchBody = #"{"answer":"About 0.26 per kWh.","results":[{"url":"https://a.nl","title":"Rates","content":"c"}]}"#
+
+    func testSuccessReportsHowManyResults() async throws {
+        let answer = try await pipeline(
+            MockTransport(completion: "ok"),
+            searchTransport: MockTransport(stubs: [.json(searchBody)])
+        ).answer(in: conversation)
+
+        XCTAssertEqual(answer.searchStatus, .searched(count: 1))
+        XCTAssertTrue(answer.searchStatus.didSearch)
+        XCTAssertEqual(answer.sources.count, 1)
+    }
+
+    func testNoKeyReportsUnavailableRatherThanSilence() async throws {
+        let answer = try await pipeline(MockTransport(completion: "ok")).answer(in: conversation)
+
+        XCTAssertEqual(answer.searchStatus, .unavailable)
+        XCTAssertEqual(
+            answer.searchStatus.note, "No Tavily key — answered from the screen only"
+        )
+    }
+
+    func testFailureIsReportedButStillAnswers() async throws {
+        let answer = try await pipeline(
+            MockTransport(completion: "answered anyway"),
+            searchTransport: MockTransport(stubs: [.json("{}", status: 401)])
+        ).answer(in: conversation)
+
+        XCTAssertEqual(answer.text, "answered anyway", "a failed search must not block the answer")
+        guard case .failed(let reason) = answer.searchStatus else {
+            return XCTFail("expected failed, got \(answer.searchStatus)")
+        }
+        XCTAssertTrue(reason.contains("rejected"), reason)
+    }
+
+    func testSettingOffSkipsTheSearch() async throws {
+        var settings = AppSettings.default
+        settings.webSearchEnabled = false
+        let searchTransport = MockTransport(stubs: [.json(searchBody)])
+
+        let answer = try await pipeline(
+            MockTransport(completion: "ok"),
+            searchTransport: searchTransport, settings: settings
+        ).answer(in: conversation)
+
+        XCTAssertEqual(answer.searchStatus, .skipped)
+        XCTAssertEqual(searchTransport.requestCount, 0)
+    }
+
+    func testForceOverridesTheSettingBeingOff() async throws {
+        // The globe in the composer: this turn needs current figures.
+        var settings = AppSettings.default
+        settings.webSearchEnabled = false
+        let searchTransport = MockTransport(stubs: [.json(searchBody)])
+
+        let answer = try await pipeline(
+            MockTransport(completion: "ok"),
+            searchTransport: searchTransport, settings: settings
+        ).answer(in: conversation, forceSearch: true)
+
+        XCTAssertTrue(answer.searchStatus.didSearch)
+        XCTAssertEqual(searchTransport.requestCount, 1)
+    }
+
+    func testForceStillCannotInventAKey() async throws {
+        var settings = AppSettings.default
+        settings.webSearchEnabled = false
+
+        let answer = try await pipeline(
+            MockTransport(completion: "ok"), settings: settings
+        ).answer(in: conversation, forceSearch: true)
+
+        XCTAssertEqual(answer.searchStatus, .unavailable)
+    }
+
+    func testSearchGroundingReachesTheModel() async throws {
+        let transport = MockTransport(completion: "ok")
+        _ = try await pipeline(
+            transport, searchTransport: MockTransport(stubs: [.json(searchBody)])
+        ).answer(in: conversation)
+
+        let body = transport.recordedBodies().joined()
+        XCTAssertTrue(body.contains("0.26 per kWh"), "the finding must be in the prompt")
+        XCTAssertTrue(body.contains("https://a.nl"))
+    }
+
+    // MARK: - Model override
+
+    func testConfiguredModelIsUsedByDefault() async throws {
+        let transport = MockTransport(completion: "ok")
+        _ = try await pipeline(transport).answer(in: conversation)
+        XCTAssertTrue(transport.recordedBodies().joined().contains("configured/model"))
+    }
+
+    func testModelCanBeOverriddenPerTurn() async throws {
+        let transport = MockTransport(completion: "ok")
+        _ = try await pipeline(transport).answer(in: conversation, model: "other/model")
+
+        let body = transport.recordedBodies().joined()
+        XCTAssertTrue(body.contains("other/model"))
+        XCTAssertFalse(body.contains("configured/model"))
+    }
+
+    func testSuccessfulSearchNeedsNoNoteBecauseSourcesShow() {
+        XCTAssertNil(SearchStatus.searched(count: 3).note)
+        XCTAssertNil(SearchStatus.skipped.note)
+        XCTAssertNotNil(SearchStatus.unavailable.note)
+        XCTAssertNotNil(SearchStatus.failed("x").note)
+    }
+}

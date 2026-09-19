@@ -20,6 +20,7 @@
 		4FDAA0F66DDE1AE869FAFEB5 /* OverlayRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90EB814F3736DAFCB3C19E04 /* OverlayRenderer.swift */; };
 		52B69C41A11AAFA86CA08CBE /* CorrectionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE55A9E0B960DEF6C79C313B /* CorrectionSheet.swift */; };
 		5D268432F94D8F7F86241086 /* ArchiveStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE179474C2A3ABF9D1A57F41 /* ArchiveStore.swift */; };
+		60224C35E1C1F01785185DEF /* ModelCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81BD2B3CB0FCA612C01F31EB /* ModelCatalog.swift */; };
 		6A93E9BBF12836284986DA0E /* GlossaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BEC8D76E1A136AA6A690868 /* GlossaryView.swift */; };
 		6E8C42593113AF36CCE17E42 /* IncomingImageCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C2763F41834E1C650329915 /* IncomingImageCoordinator.swift */; };
 		79BF1A520A39EA20FB20524D /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DF1C106996E9CFDB3AFB0E9 /* ChatView.swift */; };
@@ -53,6 +54,7 @@
 		526F1C979A76C83431A453C8 /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
 		6D9C49E76B6428656C97B21E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		7581248A97E492E07C4D2D36 /* LastResultStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastResultStore.swift; sourceTree = "<group>"; };
+		81BD2B3CB0FCA612C01F31EB /* ModelCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelCatalog.swift; sourceTree = "<group>"; };
 		8632AA7362201D55483B3FAA /* NLLens */ = {isa = PBXFileReference; lastKnownFileType = folder; name = NLLens; path = .; sourceTree = SOURCE_ROOT; };
 		90EB814F3736DAFCB3C19E04 /* OverlayRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayRenderer.swift; sourceTree = "<group>"; };
 		9C2763F41834E1C650329915 /* IncomingImageCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IncomingImageCoordinator.swift; sourceTree = "<group>"; };
@@ -179,6 +181,7 @@
 				9C2763F41834E1C650329915 /* IncomingImageCoordinator.swift */,
 				526F1C979A76C83431A453C8 /* Keychain.swift */,
 				7581248A97E492E07C4D2D36 /* LastResultStore.swift */,
+				81BD2B3CB0FCA612C01F31EB /* ModelCatalog.swift */,
 				43F7F05BD7B4795EAF45EC68 /* OnDeviceTranslation.swift */,
 				D4DE0A27576080C24580BD33 /* OverlayPresenter.swift */,
 				90EB814F3736DAFCB3C19E04 /* OverlayRenderer.swift */,
@@ -260,6 +263,7 @@
 				6E8C42593113AF36CCE17E42 /* IncomingImageCoordinator.swift in Sources */,
 				E427A532EB21CEF7BBACDFA8 /* Keychain.swift in Sources */,
 				206C518F7117695A764F2C59 /* LastResultStore.swift in Sources */,
+				60224C35E1C1F01785185DEF /* ModelCatalog.swift in Sources */,
 				B953022436A896CB7FCEC088 /* NLLensApp.swift in Sources */,
 				1BF989DC88227BB68EEA193C /* OnDeviceTranslation.swift in Sources */,
 				840A2D85B4A56B52EE23CD8E /* OverlayPresenter.swift in Sources */,

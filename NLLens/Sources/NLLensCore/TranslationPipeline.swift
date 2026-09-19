@@ -234,14 +234,29 @@ public struct TranslationPipeline: Sendable {
     public struct Answer: Sendable {
         public let text: String
         public let sources: [WebSearchResult]
+        public let searchStatus: SearchStatus
 
-        public init(text: String, sources: [WebSearchResult] = []) {
+        public init(
+            text: String,
+            sources: [WebSearchResult] = [],
+            searchStatus: SearchStatus = .skipped
+        ) {
             self.text = text
             self.sources = sources
+            self.searchStatus = searchStatus
         }
     }
 
-    public func answer(in conversation: ScreenConversation) async throws -> Answer {
+    /// - Parameters:
+    ///   - forceSearch: look up even when the setting is off. Wired to the
+    ///     globe in the composer, for the turn where the user knows current
+    ///     figures are what the answer turns on.
+    ///   - model: overrides the configured text model for this turn only.
+    public func answer(
+        in conversation: ScreenConversation,
+        forceSearch: Bool = false,
+        model: String? = nil
+    ) async throws -> Answer {
         guard settings.cloudEnabled else { throw PipelineError.cloudDisabled }
 
         let history = conversation.recentHistory()
@@ -262,14 +277,16 @@ public struct TranslationPipeline: Sendable {
 
         // Looked up before answering, not after, so the reply is built on
         // current figures rather than corrected against them.
-        let found = await lookUp(question: safeConversation.messages.last?.text)
+        let (found, status) = await lookUp(
+            question: safeConversation.messages.last?.text, force: forceSearch
+        )
 
         let raw = try await client.complete(
             messages: safeConversation.requestMessages(
                 instructions: Prompts.chatSystem,
                 searchGrounding: found?.grounding() ?? ""
             ),
-            model: textModel,
+            model: model ?? textModel,
             temperature: 0.3,
             // Generous, because the default text model reasons before
             // answering: at 900 the chain of thought consumed the whole budget
@@ -278,24 +295,36 @@ public struct TranslationPipeline: Sendable {
         )
         return Answer(
             text: map.restore(in: raw),
-            sources: found?.results ?? []
+            sources: found?.results ?? [],
+            searchStatus: status
         )
     }
 
-    /// Searches the web for the question at hand, or returns nothing.
+    /// Searches the web for the question at hand, reporting what happened.
     ///
-    /// Failure is deliberately silent: an answer grounded only in the screen is
-    /// worth far more than an error where an answer should be, and the search
-    /// is an enhancement rather than a dependency.
-    private func lookUp(question: String?) async -> WebSearchResponse? {
-        guard settings.webSearchEnabled,
-              let search, search.isUsable,
-              let question else { return nil }
+    /// A failure never blocks the answer — grounding in the screen alone beats
+    /// an error where an answer should be. But it is not silent either: the
+    /// first version swallowed the outcome entirely, and a model politely
+    /// explaining that it cannot search is indistinguishable from a search that
+    /// ran and found nothing. The status is what tells them apart.
+    private func lookUp(
+        question: String?, force: Bool
+    ) async -> (WebSearchResponse?, SearchStatus) {
+        guard force || settings.webSearchEnabled else { return (nil, .skipped) }
+        guard let search, search.isUsable else { return (nil, .unavailable) }
+        guard let question else { return (nil, .skipped) }
 
         let query = Self.searchQuery(from: question)
-        guard !query.isEmpty else { return nil }
+        guard !query.isEmpty else { return (nil, .skipped) }
 
-        return try? await search.search(query)
+        do {
+            let response = try await search.search(query)
+            return (response, .searched(count: response.results.count))
+        } catch let error as WebSearchError {
+            return (nil, .failed(error.userMessage))
+        } catch {
+            return (nil, .failed(error.localizedDescription))
+        }
     }
 
     /// Turns a question into something worth sending a search engine.

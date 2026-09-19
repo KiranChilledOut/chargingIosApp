@@ -12,6 +12,7 @@ import NLLensCore
 struct ChatView: View {
 
     @ObservedObject var session: ChatSession
+    @StateObject private var catalog = ModelCatalog.shared
     @FocusState private var inputFocused: Bool
 
     var body: some View {
@@ -96,6 +97,11 @@ struct ChatView: View {
 
                     if let found = session.sources[message.id], !found.isEmpty {
                         sourceList(found)
+                    }
+                    if let note = session.notes[message.id] {
+                        Label(note, systemImage: "globe.badge.chevron.backward")
+                            .font(Theme.Typeface.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -197,7 +203,82 @@ struct ChatView: View {
     // MARK: - Composer
 
     private var composer: some View {
+        VStack(spacing: Theme.Space.s) {
+            modelBar
+            inputRow
+        }
+        .padding(.horizontal, Theme.Space.page)
+        .padding(.vertical, Theme.Space.m)
+        .background(.bar)
+        .task { await catalog.loadIfNeeded() }
+    }
+
+    /// Which model is answering, changeable mid-conversation.
+    private var modelBar: some View {
+        HStack(spacing: Theme.Space.s) {
+            Menu {
+                if catalog.chatModels.isEmpty {
+                    Button("Load models…") {
+                        Task { await catalog.refresh() }
+                    }
+                } else {
+                    Picker("Model", selection: $session.modelOverride) {
+                        Text("Default (\(defaultModelLabel))").tag(String?.none)
+                        ForEach(catalog.chatModels) { model in
+                            Text(model.id).tag(String?.some(model.id))
+                        }
+                    }
+                    Divider()
+                    Button("Refresh list") {
+                        Task { await catalog.refresh() }
+                    }
+                }
+            } label: {
+                HStack(spacing: Theme.Space.xs) {
+                    Image(systemName: "cpu")
+                    Text(session.activeModelLabel)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption2)
+                }
+                .font(Theme.Typeface.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 0)
+
+            if catalog.isLoading {
+                ProgressView().controlSize(.mini)
+            }
+        }
+    }
+
+    private var defaultModelLabel: String {
+        AppEnvironment.shared.textModel
+            .split(separator: "/").last.map(String.init) ?? "configured"
+    }
+
+    private var inputRow: some View {
         HStack(alignment: .bottom, spacing: Theme.Space.m) {
+            // Force a lookup for this question. One-shot, so it reads as a
+            // decision about the question rather than a mode you forget is on.
+            Button {
+                session.forceSearch.toggle()
+            } label: {
+                Image(systemName: "globe")
+                    .font(.headline)
+                    .foregroundStyle(session.forceSearch ? Color.white : Color.secondary)
+                    .frame(width: 36, height: 36)
+                    .background(
+                        session.forceSearch ? Theme.Palette.accent : Theme.Palette.surface,
+                        in: Circle()
+                    )
+            }
+            .animation(Theme.Motion.quick, value: session.forceSearch)
+            .accessibilityLabel(
+                session.forceSearch ? "Web search on for this question" : "Search the web for this question"
+            )
+
             TextField("Ask a question", text: $session.draft, axis: .vertical)
                 .font(Theme.Typeface.reading)
                 .lineLimit(1...5)
@@ -225,9 +306,6 @@ struct ChatView: View {
             .animation(Theme.Motion.quick, value: canSend)
             .accessibilityLabel("Send")
         }
-        .padding(.horizontal, Theme.Space.page)
-        .padding(.vertical, Theme.Space.m)
-        .background(.bar)
     }
 
     private var canSend: Bool {

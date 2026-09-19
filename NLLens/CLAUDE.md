@@ -276,8 +276,13 @@ confidently is the most damaging thing this app can produce.
   pointing at the cause.
 - The query is **redacted first**, then placeholder tokens are stripped:
   `[[R1]]` means nothing to a search engine and would skew the results.
-- A failed search is **silent**. An answer grounded only in the screen beats an
-  error where an answer should be; search is an enhancement, not a dependency.
+- A failed search **never blocks the answer**, but it is not silent either.
+  The first version swallowed the outcome, and a model politely explaining that
+  it cannot search is indistinguishable from a search that ran and found
+  nothing. `SearchStatus` is what tells them apart, and the note surfaces in
+  chat.
+- The globe in the composer forces a lookup for one question, then resets —
+  a decision about the question, not a mode you forget is on.
 - No key means no `TavilyClient`, which is what turns the step off.
 
 ## Reasoning models return empty content
@@ -289,6 +294,13 @@ budget the chain of thought consumes all of it — leaving HTTP 200 with an empt
 looking for a bug in their question instead of at the token budget, so
 truncation is now named for what it is. Chat gets 3000 tokens for the same
 reason; 900 was not enough to think and answer.
+
+## Model can be changed mid-conversation
+
+`ChatSession.modelOverride` applies to one conversation without touching the
+configured default, and `answer(in:forceSearch:model:)` takes it per turn.
+`ModelCatalog` caches the list in the App Group, because a menu that stalls on
+a network call is one nobody opens twice.
 
 ## Conventions
 

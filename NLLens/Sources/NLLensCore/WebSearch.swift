@@ -52,6 +52,33 @@ public struct WebSearchResponse: Sendable, Equatable {
     }
 }
 
+/// What happened to the lookup, so the interface can say rather than leave the
+/// user guessing whether the feature works at all.
+public enum SearchStatus: Sendable, Equatable {
+    /// Off by setting, or not warranted for this turn.
+    case skipped
+    /// No key configured.
+    case unavailable
+    case failed(String)
+    case searched(count: Int)
+
+    public var didSearch: Bool {
+        if case .searched = self { return true }
+        return false
+    }
+
+    /// Short line for the interface. Nil when there is nothing worth saying —
+    /// a successful search already shows its sources.
+    public var note: String? {
+        switch self {
+        case .skipped: return nil
+        case .unavailable: return "No Tavily key — answered from the screen only"
+        case .failed(let reason): return "Search failed: \(reason)"
+        case .searched: return nil
+        }
+    }
+}
+
 public enum WebSearchError: Swift.Error, Equatable {
     case missingAPIKey
     case unauthorized
