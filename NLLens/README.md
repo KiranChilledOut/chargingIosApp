@@ -83,7 +83,33 @@ exactly the screens you would not paste into a third-party API. So:
   unusable for something you rely on daily. The paid account gives 1-year
   signing plus internal TestFlight.
 
-## Install on your iPhone
+## Install without a Mac
+
+The app installs fine from a phone; it is the *build* that needs macOS. GitHub
+lends one: `.github/workflows/ios-build.yml` builds on a macOS runner and
+attaches an `.ipa` to a release.
+
+1. On the phone, open the repository on github.com → **Actions** →
+   **Build for iPhone** → **Run workflow**. It also runs on every push to the
+   working branch.
+2. When it finishes, open **Releases** and tap the `NLLens.ipa` asset.
+3. Install it with [SideStore](https://sidestore.io), which signs it with your
+   own Apple ID on the device.
+
+The build is deliberately **unsigned**. SideStore re-signs it anyway, so no
+signing certificate, provisioning profile or Apple credential is stored in this
+repository — and a free Apple ID needs no paid account.
+
+The catch is Apple's, not this app's: a free Apple ID signs for **seven days**.
+SideStore refreshes over Wi-Fi without a computer, but it has to be running. A
+paid developer account ($99/yr) removes that by distributing through TestFlight
+instead, where builds last 90 days and install from the TestFlight app.
+
+Actions minutes are free while this repository is public. On a private
+repository the Free plan allows 2,000 minutes a month, and macOS bills at 10×,
+so roughly 200 minutes — about 30 builds.
+
+## Install on your iPhone (with a Mac)
 
 `NLLens.xcodeproj` is committed, so there is nothing to generate and no
 Homebrew needed.

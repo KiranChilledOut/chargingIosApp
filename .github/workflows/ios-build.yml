@@ -1,0 +1,106 @@
+# Builds an installable NL Lens without anyone owning a Mac.
+#
+# The app installs fine from a phone; it is the *build* that needs macOS, and
+# that is what this borrows. The result is an unsigned .ipa attached to a
+# GitHub release, which SideStore re-signs on the device with your own Apple
+# ID — so no signing certificate, no provisioning profile and no Apple
+# credential ever goes near this repository.
+#
+# Trigger it from the phone: Actions tab -> "Build for iPhone" -> Run workflow.
+name: Build for iPhone
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - claude/ios-translation-overlay-dzyv4v
+    paths:
+      - 'NLLens/**'
+      - '.github/workflows/ios-build.yml'
+
+permissions:
+  contents: write
+
+# One build at a time. Two pushes in a minute should not race for a tag.
+concurrency:
+  group: ios-build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      # The core is pure Swift and carries the logic worth trusting. Failing
+      # here costs a minute; shipping a broken build to a phone costs an
+      # evening.
+      - name: Test the core
+        working-directory: NLLens
+        run: swift test
+
+      - name: Build unsigned
+        working-directory: NLLens
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project NLLens.xcodeproj \
+            -scheme NLLens \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath .build-ci \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM="" \
+            build
+
+      - name: Wrap as .ipa
+        working-directory: NLLens
+        run: |
+          APP=".build-ci/Build/Products/Release-iphoneos/NLLens.app"
+          if [ ! -d "$APP" ]; then
+            echo "No app bundle at $APP — here is what was built:"
+            ls -R .build-ci/Build/Products || true
+            exit 1
+          fi
+          rm -rf Payload NLLens.ipa
+          mkdir Payload
+          cp -R "$APP" Payload/
+          zip -qry NLLens.ipa Payload
+          ls -lh NLLens.ipa
+
+      # A release asset rather than a build artifact: artifacts download as a
+      # zip, and a zip containing an .ipa is awkward to open on a phone. A
+      # release asset is the raw file, one tap from Safari into SideStore.
+      - name: Publish the build
+        working-directory: NLLens
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="ios-${{ github.run_number }}"
+
+          # A file rather than an inline --notes: the multi-line string would
+          # otherwise have to be quoted through both YAML and the shell.
+          cat > notes.md <<'NOTES'
+          Unsigned build. Open this on the iPhone and install it with
+          SideStore, which signs it with your own Apple ID.
+
+          Nothing here is signed by CI, so no certificate and no Apple
+          credential is stored in this repository.
+          NOTES
+          echo "" >> notes.md
+          echo "Commit: ${{ github.sha }}" >> notes.md
+
+          gh release create "$TAG" NLLens.ipa \
+            --target "${{ github.sha }}" \
+            --title "NL Lens build ${{ github.run_number }}" \
+            --notes-file notes.md
