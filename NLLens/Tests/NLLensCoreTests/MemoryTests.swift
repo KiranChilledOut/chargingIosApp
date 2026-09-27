@@ -300,3 +300,58 @@ final class MemoryInThePipelineTests: XCTestCase {
         XCTAssertEqual(count, 0)
     }
 }
+
+/// "Translation failed." was every non-Nebius error's message. It says nothing
+/// that can be acted on, and it sent a real user to check their model settings
+/// for a fault that could have been anywhere — which, that time, is where it
+/// happened to be, by luck rather than by the message.
+final class FailureTextTests: XCTestCase {
+
+    func testAModelIgnoringTheSchemaIsNamedAsAModelChoice() {
+        let message = FailureText.describe(JSONExtraction.Error.decodingFailed("x"))
+        XCTAssertTrue(message.lowercased().contains("wrong shape"))
+        XCTAssertTrue(
+            message.contains("text model in Settings"),
+            "the fix is a setting, so say which one"
+        )
+    }
+
+    func testNoJSONIsAlsoAModelProblem() {
+        let message = FailureText.describe(JSONExtraction.Error.noJSONFound)
+        XCTAssertTrue(message.contains("text model in Settings"))
+    }
+
+    func testNebiusErrorsKeepTheirOwnWording() {
+        XCTAssertEqual(
+            FailureText.describe(NebiusError.unauthorized),
+            NebiusError.unauthorized.userMessage
+        )
+    }
+
+    func testNetworkFailuresAreNotBlamedOnTheModel() {
+        let message = FailureText.describe(URLError(.notConnectedToInternet))
+        XCTAssertEqual(message, "No internet connection.")
+        XCTAssertFalse(message.contains("model"))
+    }
+
+    func testAnUnknownErrorStillCarriesItsOwnDescription() {
+        struct Odd: Error, LocalizedError {
+            var errorDescription: String? { "something specific went wrong" }
+        }
+        let message = FailureText.describe(Odd())
+        XCTAssertTrue(message.contains("something specific went wrong"))
+    }
+
+    func testTheUselessSentenceIsGoneFromEveryBranch() {
+        let errors: [Error] = [
+            JSONExtraction.Error.noJSONFound,
+            JSONExtraction.Error.decodingFailed("x"),
+            PipelineError.nothingToTranslate,
+            URLError(.timedOut),
+            NebiusError.rateLimited,
+        ]
+        for error in errors {
+            XCTAssertNotEqual(FailureText.describe(error), "Translation failed.")
+        }
+    }
+}

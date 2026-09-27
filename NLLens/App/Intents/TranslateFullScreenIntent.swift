@@ -75,7 +75,7 @@ enum FullScreenTranslationRun {
         } catch let error as NebiusError {
             await fail(error.userMessage)
         } catch {
-            await fail("Translation failed.")
+            await fail(FailureText.describe(error))
         }
     }
 

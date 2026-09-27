@@ -76,7 +76,7 @@ struct TranslateLongScreenIntent: AppIntent {
             await fail(error.userMessage)
             return .result()
         } catch {
-            await fail("Translation failed.")
+            await fail(FailureText.describe(error))
             return .result()
         }
     }
