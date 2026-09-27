@@ -238,16 +238,110 @@ public struct TranslationPipeline: Sendable {
         public let text: String
         public let sources: [WebSearchResult]
         public let searchStatus: SearchStatus
+        /// What the agent did to get here. Empty on the one-shot path.
+        public let steps: [AgentStep]
 
         public init(
             text: String,
             sources: [WebSearchResult] = [],
-            searchStatus: SearchStatus = .skipped
+            searchStatus: SearchStatus = .skipped,
+            steps: [AgentStep] = []
         ) {
             self.text = text
             self.sources = sources
             self.searchStatus = searchStatus
+            self.steps = steps
         }
+    }
+
+    /// Answers by looking things up repeatedly rather than once.
+    ///
+    /// The one-shot path plans a query, runs it, and answers from whatever
+    /// comes back — so a wrong result is accepted rather than retried, which
+    /// is how a question about energy tariffs got answered against a page of
+    /// travel requirements. Here the model drives: it can search, open the
+    /// page, find the figure is for the wrong year, and search again.
+    ///
+    /// It costs several round trips, so it is a deliberate choice per question
+    /// rather than the default.
+    public func research(
+        in conversation: ScreenConversation,
+        model: String? = nil,
+        onStep: (@Sendable (AgentStep) async -> Void)? = nil
+    ) async throws -> Answer {
+        guard settings.cloudEnabled else { throw PipelineError.cloudDisabled }
+        guard let search, search.isUsable else {
+            // Without a way to look anything up there is nothing for a loop to
+            // do that one call does not already do.
+            return try await answer(in: conversation, model: model)
+        }
+
+        let history = conversation.recentHistory()
+        let (safe, map) = Redactor.redact(
+            texts: [conversation.screenText, conversation.visualReading]
+                + history.map(\.text),
+            policy: settings.redactionPolicy
+        )
+        var safeConversation = conversation
+        safeConversation.screenText = safe[0]
+        safeConversation.visualReading = safe[1]
+        safeConversation.messages = zip(history, safe.dropFirst(2)).map { message, text in
+            var copy = message
+            copy.text = text
+            return copy
+        }
+
+        let question = safeConversation.messages.last?.text ?? ""
+        let recalled = await memory?.grounding(
+            for: "\(question)\n\(safeConversation.visualReading)"
+        ) ?? ""
+
+        let log = SourceLog()
+        var tools: [any AgentTool] = [
+            SearchTool(client: search, log: log),
+            ReadPageTool(),
+        ]
+        if let memory, settings.memoryEnabled {
+            tools.append(RecallTool(memory: memory))
+        }
+
+        let agent = Agent(
+            client: client,
+            model: model ?? textModel,
+            tools: tools,
+            maxSteps: 5,
+            maxTokens: 3000
+        )
+
+        let outcome = try await agent.run(
+            messages: safeConversation.requestMessages(
+                instructions: Prompts.agentSystem,
+                memory: recalled
+            ),
+            onStep: onStep
+        )
+
+        let sources = await log.all
+        let searched = outcome.steps.filter { $0.tool == "search_web" && !$0.failed }.count
+
+        let text = map.restore(in: outcome.text)
+        if memory != nil, settings.memoryEnabled, !question.isEmpty {
+            let conversationCopy = safeConversation
+            let learningModel = model ?? textModel
+            Task.detached(priority: .background) { [self] in
+                await learn(
+                    from: conversationCopy, question: question,
+                    answer: outcome.text, model: learningModel
+                )
+            }
+        }
+
+        return Answer(
+            text: text,
+            sources: sources,
+            searchStatus: searched > 0 ? .searched(count: sources.count) : .skipped,
+            steps: outcome.steps
+        )
     }
 
     /// - Parameters:

@@ -370,6 +370,49 @@ requirements** — and the answer had to admit it still could not give a figure.
   needs no lookup; the globe in the composer still forces one, because pressing
   it is a statement.
 
+## The agent loop
+
+`research(in:model:onStep:)` is the deep path, beside the one-shot `answer`.
+The fixed pipeline could only ever be as good as one search: plan a query, run
+it, answer from what came back. When the results were wrong it answered anyway
+and said it could not find the figure — it had no way to notice and no way to
+try again. A loop can search, open the page, see the figure is for the wrong
+year, and search again.
+
+- **Nebius function calling is standard OpenAI shape**, unlike its error
+  envelope and its `json_schema` nesting. `tools`, `tool_choice: "auto"`,
+  `tool_calls` on the reply, `role: "tool"` with `tool_call_id` going back.
+  `arguments` is a JSON-encoded **string**, not a nested object, and is passed
+  to the tool untouched.
+- **`extractTurn` is separate from `extractContent`** because the empty-content
+  rules invert once tools exist. A message with `tool_calls` and no `content`
+  is the normal shape of "run this first"; `extractContent` would throw
+  `emptyCompletion` on exactly the replies the loop exists for.
+- **The assistant turn is replayed before its results.** A tool message with no
+  preceding request is an orphan and the whole request is rejected.
+- **A failing tool is handed back, not thrown.** One failed search is not a
+  failed answer, and a model told what went wrong can try other words. Same for
+  a call to a tool that does not exist — the reply names the ones that do.
+- **Running out of steps still answers.** The final call offers no tools, so
+  the model must answer from what it gathered. A loop that spends five searches
+  and returns nothing is worse than one that never ran.
+- **`read_page` is what makes searching worth doing.** A Tavily snippet is ~400
+  characters and the figure is usually in a table further down. Without it an
+  answer can never beat the summary.
+- **Fetched pages are framed as quoted material** in both the tool result and
+  the system prompt. It is text from strangers going into the model's context;
+  anything in it that reads like an instruction is part of the page.
+- **`ReadPageTool.safeURL` refuses everything but public http(s).** The model
+  picks the URL partly from pages it just read, so loopback, `.local` and the
+  private ranges are refused — including `169.254.169.254`.
+- **`onStep` exists because silence reads as a hang.** Fifteen seconds with no
+  output looks like a crash; "searched… read acm.nl… searched again" looks like
+  work. The trail is kept against the answer too: an answer that read two pages
+  is worth more than one that guessed, and the text alone cannot show that.
+- **It is per-question, not a mode.** Several round trips is a real cost, so
+  the magnifying glass in the composer asks for it once and resets, like the
+  globe.
+
 ## Memory
 
 `MemoryStore` carries facts between screens — the tariff, the provider, the

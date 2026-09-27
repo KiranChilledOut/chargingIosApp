@@ -46,6 +46,52 @@ public enum NebiusError: Swift.Error, Equatable {
 
 public enum ChatRole: String, Sendable, Codable {
     case system, user, assistant
+    /// Carries the result of a tool the model asked for.
+    case tool
+}
+
+/// A function the model may ask to have run.
+public struct ToolDefinition: Sendable, Equatable {
+    public let name: String
+    public let description: String
+    /// JSON Schema for the arguments.
+    public let parameters: JSONValue
+
+    public init(name: String, description: String, parameters: JSONValue) {
+        self.name = name
+        self.description = description
+        self.parameters = parameters
+    }
+}
+
+/// The model asking for a tool to be run.
+public struct ToolCall: Sendable, Equatable, Identifiable {
+    public let id: String
+    public let name: String
+    /// Raw JSON, exactly as the model wrote it. Kept as a string because that
+    /// is how it arrives — `arguments` is a JSON-encoded string inside the
+    /// JSON body, not a nested object — and because a tool that cannot parse
+    /// its own arguments should say so itself.
+    public let arguments: String
+
+    public init(id: String, name: String, arguments: String) {
+        self.id = id
+        self.name = name
+        self.arguments = arguments
+    }
+}
+
+/// One reply from the model: an answer, or a request to run tools first.
+public struct AssistantTurn: Sendable, Equatable {
+    public let text: String
+    public let toolCalls: [ToolCall]
+
+    public init(text: String, toolCalls: [ToolCall] = []) {
+        self.text = text
+        self.toolCalls = toolCalls
+    }
+
+    public var wantsTools: Bool { !toolCalls.isEmpty }
 }
 
 public enum ChatContent: Sendable, Equatable {
@@ -57,10 +103,43 @@ public enum ChatContent: Sendable, Equatable {
 public struct ChatMessage: Sendable, Equatable {
     public var role: ChatRole
     public var content: [ChatContent]
+    /// Set on an assistant message that asked for tools.
+    public var toolCalls: [ToolCall]
+    /// Set on a `.tool` message, tying the result to the request.
+    public var toolCallID: String?
+    /// The tool's name, which some models use to match the result up.
+    public var name: String?
 
-    public init(role: ChatRole, content: [ChatContent]) {
+    public init(
+        role: ChatRole,
+        content: [ChatContent],
+        toolCalls: [ToolCall] = [],
+        toolCallID: String? = nil,
+        name: String? = nil
+    ) {
         self.role = role
         self.content = content
+        self.toolCalls = toolCalls
+        self.toolCallID = toolCallID
+        self.name = name
+    }
+
+    /// The model's own turn, replayed back to it. Required: a tool result with
+    /// no preceding request is rejected as an orphan.
+    public static func assistant(_ turn: AssistantTurn) -> ChatMessage {
+        ChatMessage(
+            role: .assistant,
+            content: turn.text.isEmpty ? [] : [.text(turn.text)],
+            toolCalls: turn.toolCalls
+        )
+    }
+
+    public static func toolResult(
+        callID: String, name: String, content: String
+    ) -> ChatMessage {
+        ChatMessage(
+            role: .tool, content: [.text(content)], toolCallID: callID, name: name
+        )
     }
 
     public static func system(_ text: String) -> ChatMessage {
@@ -161,6 +240,43 @@ public struct NebiusClient: Sendable {
 
         let response = try await sendWithRetry(request)
         return try extractContent(from: response.body)
+    }
+
+    /// One turn of a tool-using conversation.
+    ///
+    /// Kept separate from `complete` rather than folded into it: `complete` is
+    /// used by the translate, explain and risk paths, which want a string and
+    /// would have to unwrap a turn they can never receive.
+    public func turn(
+        messages: [ChatMessage],
+        model: String,
+        tools: [ToolDefinition],
+        temperature: Double = 0.2,
+        maxTokens: Int = 2048
+    ) async throws -> AssistantTurn {
+        guard configuration.isUsable else { throw NebiusError.missingAPIKey }
+
+        let body = try encodeRequestBody(
+            messages: messages,
+            model: model,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            responseFormat: nil,
+            tools: tools
+        )
+        let request = HTTPRequest(
+            url: configuration.baseURL.appendingPathComponent("chat/completions"),
+            method: "POST",
+            headers: [
+                "Authorization": "Bearer \(configuration.apiKey)",
+                "Content-Type": "application/json",
+            ],
+            body: body,
+            timeout: configuration.requestTimeout
+        )
+
+        let response = try await sendWithRetry(request)
+        return try extractTurn(from: response.body)
     }
 
     /// Lists available models, so the app can offer a picker instead of
@@ -287,9 +403,43 @@ public struct NebiusClient: Sendable {
         }
     }
 
+    private struct WireToolCallFunction: Encodable {
+        let name: String
+        let arguments: String
+    }
+
+    private struct WireToolCall: Encodable {
+        let id: String
+        let type = "function"
+        let function: WireToolCallFunction
+    }
+
     private struct WireMessage: Encodable {
         let role: String
-        let content: WireContent
+        // Optional because an assistant turn that only asks for tools has no
+        // text, and sending an empty string where the API expects none is
+        // rejected by some hosted models.
+        var content: WireContent?
+        var toolCalls: [WireToolCall]?
+        var toolCallID: String?
+        var name: String?
+
+        enum CodingKeys: String, CodingKey {
+            case role, content, name
+            case toolCalls = "tool_calls"
+            case toolCallID = "tool_call_id"
+        }
+    }
+
+    private struct WireTool: Encodable {
+        let type = "function"
+        let function: WireToolFunction
+
+        struct WireToolFunction: Encodable {
+            let name: String
+            let description: String
+            let parameters: JSONValue
+        }
     }
 
     private struct WireRequest: Encodable {
@@ -298,11 +448,14 @@ public struct NebiusClient: Sendable {
         let temperature: Double
         let maxTokens: Int
         let responseFormat: ResponseFormat?
+        var tools: [WireTool]?
+        var toolChoice: String?
 
         enum CodingKeys: String, CodingKey {
-            case model, messages, temperature
+            case model, messages, temperature, tools
             case maxTokens = "max_tokens"
             case responseFormat = "response_format"
+            case toolChoice = "tool_choice"
         }
     }
 
@@ -311,7 +464,8 @@ public struct NebiusClient: Sendable {
         model: String,
         temperature: Double,
         maxTokens: Int,
-        responseFormat: ResponseFormat? = nil
+        responseFormat: ResponseFormat? = nil,
+        tools: [ToolDefinition] = []
     ) throws -> Data {
         let wireMessages: [WireMessage] = messages.map { message in
             // Text-only messages use the plain string form. Some hosted models
@@ -322,7 +476,22 @@ public struct NebiusClient: Sendable {
                     if case .text(let value) = part { return value }
                     return nil
                 }.joined(separator: "\n")
-                return WireMessage(role: message.role.rawValue, content: .string(text))
+
+                let calls = message.toolCalls.map {
+                    WireToolCall(
+                        id: $0.id,
+                        function: WireToolCallFunction(name: $0.name, arguments: $0.arguments)
+                    )
+                }
+                return WireMessage(
+                    role: message.role.rawValue,
+                    // An assistant turn that only asks for tools carries no
+                    // text, and the key is omitted rather than sent empty.
+                    content: text.isEmpty && !calls.isEmpty ? nil : .string(text),
+                    toolCalls: calls.isEmpty ? nil : calls,
+                    toolCallID: message.toolCallID,
+                    name: message.name
+                )
             }
 
             let parts = message.content.map { part -> WirePart in
@@ -340,6 +509,12 @@ public struct NebiusClient: Sendable {
             return WireMessage(role: message.role.rawValue, content: .parts(parts))
         }
 
+        let wireTools = tools.map {
+            WireTool(function: .init(
+                name: $0.name, description: $0.description, parameters: $0.parameters
+            ))
+        }
+
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.withoutEscapingSlashes]
         return try encoder.encode(WireRequest(
@@ -347,7 +522,11 @@ public struct NebiusClient: Sendable {
             messages: wireMessages,
             temperature: temperature,
             maxTokens: maxTokens,
-            responseFormat: responseFormat
+            responseFormat: responseFormat,
+            tools: wireTools.isEmpty ? nil : wireTools,
+            // Omitted rather than "auto" when there are no tools: a model that
+            // does not do tool calling should see a request it recognises.
+            toolChoice: wireTools.isEmpty ? nil : "auto"
         ))
     }
 
@@ -384,6 +563,58 @@ public struct NebiusClient: Sendable {
             if !trimmed.isEmpty { return trimmed }
         }
         throw NebiusError.emptyCompletion
+    }
+
+    /// The reply as a turn: an answer, or a request to run tools.
+    ///
+    /// Separate from `extractContent` because the empty-content rules invert
+    /// once tools are in play. A message with `tool_calls` and no `content` is
+    /// the normal, correct shape of "run this first" — treating it as an empty
+    /// completion would throw away exactly the replies the loop exists for.
+    func extractTurn(from body: Data) throws -> AssistantTurn {
+        guard
+            let root = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+            let choices = root["choices"] as? [[String: Any]],
+            let first = choices.first,
+            let message = first["message"] as? [String: Any]
+        else {
+            throw NebiusError.invalidResponse
+        }
+
+        let calls = Self.toolCalls(of: message)
+        let text = Self.textContent(of: message) ?? ""
+
+        if !calls.isEmpty { return AssistantTurn(text: text, toolCalls: calls) }
+        if !text.isEmpty { return AssistantTurn(text: text) }
+
+        if (first["finish_reason"] as? String) == "length" { throw NebiusError.truncated }
+
+        if let reasoning = (message["reasoning_content"] as? String)
+            ?? (message["reasoning"] as? String) {
+            let trimmed = reasoning.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return AssistantTurn(text: trimmed) }
+        }
+        throw NebiusError.emptyCompletion
+    }
+
+    /// `arguments` arrives as a JSON-encoded *string* inside the JSON body,
+    /// not as a nested object, and is passed through untouched — parsing it is
+    /// the tool's job, and a tool that cannot read its own arguments gives a
+    /// better error than a decoder here could.
+    private static func toolCalls(of message: [String: Any]) -> [ToolCall] {
+        guard let raw = message["tool_calls"] as? [[String: Any]] else { return [] }
+
+        return raw.compactMap { entry in
+            guard let function = entry["function"] as? [String: Any],
+                  let name = function["name"] as? String
+            else { return nil }
+
+            // An id is required to tie the result back, but some hosted models
+            // omit it on a single call rather than fail the request.
+            let id = (entry["id"] as? String) ?? "call_\(name)"
+            let arguments = (function["arguments"] as? String) ?? "{}"
+            return ToolCall(id: id, name: name, arguments: arguments)
+        }
     }
 
     /// Non-empty text from `content`, in whichever shape it arrived.

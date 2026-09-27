@@ -95,6 +95,9 @@ struct ChatView: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
 
+                    if let trail = session.steps[message.id], !trail.isEmpty {
+                        StepTrail(steps: trail)
+                    }
                     if let found = session.sources[message.id], !found.isEmpty {
                         sourceList(found)
                     }
@@ -137,12 +140,25 @@ struct ChatView: View {
     }
 
     private var thinking: some View {
-        HStack(spacing: Theme.Space.s) {
-            ProgressView().controlSize(.small)
-            Text(session.isSearching ? "Looking it up…" : "Thinking…")
-                .font(Theme.Typeface.detail)
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: Theme.Space.s) {
+            HStack(spacing: Theme.Space.s) {
+                ProgressView().controlSize(.small)
+                Text(waitingLabel)
+                    .font(Theme.Typeface.detail)
+                    .foregroundStyle(.secondary)
+            }
+
+            // Digging takes several round trips. Shown as it goes, because
+            // fifteen silent seconds read as a hang rather than as work.
+            ForEach(Array(session.liveSteps.enumerated()), id: \.offset) { _, step in
+                StepRow(step: step)
+            }
         }
+    }
+
+    private var waitingLabel: String {
+        if session.deepResearch { return "Digging…" }
+        return session.isSearching ? "Looking it up…" : "Thinking…"
     }
 
     private func failure(_ message: String) -> some View {
@@ -279,6 +295,31 @@ struct ChatView: View {
                 session.forceSearch ? "Web search on for this question" : "Search the web for this question"
             )
 
+            // Digging costs several round trips, so it is asked for per
+            // question rather than left on. Hidden without a search key,
+            // because a loop with nothing to look things up in is just a
+            // slower single call.
+            if session.canResearch {
+                Button {
+                    session.deepResearch.toggle()
+                } label: {
+                    Image(systemName: "text.magnifyingglass")
+                        .font(.headline)
+                        .foregroundStyle(session.deepResearch ? Color.white : Color.secondary)
+                        .frame(width: 36, height: 36)
+                        .background(
+                            session.deepResearch ? Theme.Palette.accent : Theme.Palette.surface,
+                            in: Circle()
+                        )
+                }
+                .animation(Theme.Motion.quick, value: session.deepResearch)
+                .accessibilityLabel(
+                    session.deepResearch
+                        ? "Deep research on for this question"
+                        : "Search, read the pages, and check before answering"
+                )
+            }
+
             TextField("Ask a question", text: $session.draft, axis: .vertical)
                 .font(Theme.Typeface.reading)
                 .lineLimit(1...5)
@@ -317,5 +358,86 @@ struct ChatView: View {
         guard canSend else { return }
         let text = session.draft
         Task { await session.send(text) }
+    }
+}
+
+/// One thing the agent did.
+private struct StepRow: View {
+    let step: AgentStep
+
+    var body: some View {
+        HStack(spacing: Theme.Space.s) {
+            Image(systemName: step.failed ? "xmark.circle" : icon)
+                .font(.caption)
+                .foregroundStyle(step.failed ? Color.orange : Color.secondary)
+            Text(label)
+                .font(Theme.Typeface.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+    }
+
+    private var icon: String {
+        switch step.tool {
+        case "search_web": return "magnifyingglass"
+        case "read_page": return "doc.text"
+        case "recall": return "brain"
+        default: return "wrench.and.screwdriver"
+        }
+    }
+
+    private var label: String {
+        let verb: String
+        switch step.tool {
+        case "search_web": verb = "Searched"
+        case "read_page": verb = "Read"
+        case "recall": verb = "Recalled"
+        default: verb = step.tool
+        }
+        return step.detail.isEmpty ? verb : "\(verb) \(step.detail)"
+    }
+}
+
+/// What the agent did, collapsed under a count.
+///
+/// Kept rather than discarded once the answer arrives: an answer that searched
+/// four times and read two pages is worth more than one that guessed, and
+/// there is no way to tell them apart from the text alone.
+private struct StepTrail: View {
+    let steps: [AgentStep]
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s) {
+            Button {
+                withAnimation(Theme.Motion.quick) { expanded.toggle() }
+            } label: {
+                Label(
+                    summary,
+                    systemImage: expanded ? "chevron.down" : "chevron.right"
+                )
+                .font(Theme.Typeface.caption)
+                .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+
+            if expanded {
+                ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
+                    StepRow(step: step)
+                        .padding(.leading, Theme.Space.m)
+                }
+            }
+        }
+    }
+
+    private var summary: String {
+        let searches = steps.filter { $0.tool == "search_web" }.count
+        let reads = steps.filter { $0.tool == "read_page" }.count
+
+        var parts: [String] = []
+        if searches > 0 { parts.append("\(searches) search\(searches == 1 ? "" : "es")") }
+        if reads > 0 { parts.append("\(reads) page\(reads == 1 ? "" : "s") read") }
+        return parts.isEmpty ? "\(steps.count) steps" : parts.joined(separator: ", ")
     }
 }

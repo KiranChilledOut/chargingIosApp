@@ -17,6 +17,14 @@ final class ChatSession: ObservableObject {
 
     /// Look up for the next message regardless of the setting.
     @Published var forceSearch = false
+    /// Let the model search, read pages and search again for the next
+    /// message, rather than answering from one lookup.
+    @Published var deepResearch = false
+    /// What the agent is doing, while it is doing it. A loop that takes
+    /// fifteen seconds in silence reads as one that has hung.
+    @Published private(set) var liveSteps: [AgentStep] = []
+    /// What it did, kept against the answer it produced.
+    @Published private(set) var steps: [UUID: [AgentStep]] = [:]
     /// Overrides the configured model for this conversation only.
     @Published var modelOverride: String?
 
@@ -43,8 +51,12 @@ final class ChatSession: ObservableObject {
     /// than just being longer than usual.
     var isSearching: Bool {
         isAnswering && environment.hasSearchKey
-            && (forceSearch || environment.settings.webSearchEnabled)
+            && (forceSearch || deepResearch || environment.settings.webSearchEnabled)
     }
+
+    /// Whether digging deeper is available at all. Without a search key there
+    /// is nothing for a loop to do that one call does not already do.
+    var canResearch: Bool { environment.hasSearchKey }
 
     /// The model this conversation will actually use.
     var activeModel: String { modelOverride ?? environment.textModel }
@@ -91,23 +103,34 @@ final class ChatSession: ObservableObject {
         isAnswering = true
         defer { isAnswering = false }
 
+        let digging = deepResearch && canResearch
+        liveSteps = []
+
         do {
             let pipeline = await environment.pipeline()
-            let answer = try await pipeline.answer(
-                in: conversation,
-                forceSearch: forceSearch,
-                model: modelOverride
-            )
+            let answer = digging
+                ? try await pipeline.research(in: conversation, model: modelOverride) { step in
+                    await MainActor.run { self.liveSteps.append(step) }
+                }
+                : try await pipeline.answer(
+                    in: conversation,
+                    forceSearch: forceSearch,
+                    model: modelOverride
+                )
             conversation.append(role: .assistant, text: answer.text)
 
             if let id = conversation.messages.last?.id {
                 if !answer.sources.isEmpty { sources[id] = answer.sources }
                 notes[id] = answer.searchStatus.note
+                if !answer.steps.isEmpty { steps[id] = answer.steps }
             }
             // One-shot, like the paperclip in a mail client: forcing a lookup
             // is a decision about this question, not about the conversation.
             forceSearch = false
+            deepResearch = false
+            liveSteps = []
         } catch {
+            liveSteps = []
             // Drop the question rather than leave it sitting in the history
             // looking answered, and put it back in the field so it is not lost.
             conversation.removeLast()
