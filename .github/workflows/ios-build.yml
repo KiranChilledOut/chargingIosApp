@@ -47,7 +47,7 @@ jobs:
         working-directory: NLLens
         run: swift test
 
-      - name: Build unsigned
+      - name: Build
         working-directory: NLLens
         run: |
           set -o pipefail
@@ -75,8 +75,31 @@ jobs:
           rm -rf Payload NLLens.ipa
           mkdir Payload
           cp -R "$APP" Payload/
+
+          # Ad-hoc sign, which is the whole point of this step.
+          #
+          # CODE_SIGNING_ALLOWED=NO leaves the Mach-O with no
+          # LC_CODE_SIGNATURE load command at all. Sideloadly, AltStore and
+          # SideStore all *replace* a signature; none of them can add the
+          # load command, because that means expanding the header and
+          # relocating __LINKEDIT. The result installed nowhere and failed
+          # with "Invalid file", which says nothing about the real cause.
+          #
+          # `codesign -s -` does rewrite the binary properly, so this
+          # reserves the slot the re-signer then overwrites with a real
+          # identity. The signature itself is worthless; the load command is
+          # the point.
+          codesign --force --sign - --timestamp=none Payload/NLLens.app
+
           zip -qry NLLens.ipa Payload
           ls -lh NLLens.ipa
+
+      # An .ipa can have a correct Payload layout, a complete Info.plist and a
+      # real arm64 binary and still install nowhere. Checked here rather than
+      # discovered on a phone.
+      - name: Verify the .ipa is installable
+        working-directory: NLLens
+        run: python3 Scripts/verify-ipa.py NLLens.ipa
 
       # A release asset rather than a build artifact: artifacts download as a
       # zip, and a zip containing an .ipa is awkward to open on a phone. A

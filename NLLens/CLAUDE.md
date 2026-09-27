@@ -322,6 +322,25 @@ confidently is the most damaging thing this app can produce.
   decode, for a payload the REST endpoint returns directly (and more of it:
   the MCP shape drops `answer`). REST stays.
 
+## The CI build must be ad-hoc signed, not unsigned
+
+`CODE_SIGNING_ALLOWED=NO` looks like the right way to build an .ipa that a
+sideloader will re-sign anyway. It is not, and the failure teaches nothing:
+Sideloadly rejects the result with `Invalid file`, and every obvious check
+passes — correct `Payload/NLLens.app` layout, complete `Info.plist` with
+`CFBundleSupportedPlatforms` and `MinimumOSVersion`, a real arm64 Mach-O.
+
+The binary has no `LC_CODE_SIGNATURE` load command. Sideloadly, AltStore and
+SideStore all *replace* an existing signature; none of them can add the load
+command, because that means expanding the Mach-O header and relocating
+`__LINKEDIT`. `codesign --force --sign -` does rewrite the binary properly, so
+the build ad-hoc signs and the re-signer overwrites that. The signature is
+worthless; the slot is the point.
+
+`Scripts/verify-ipa.py` runs in CI and fails the build if the load command is
+missing, so this cannot ship silently again. It checks the structural things
+too, but those were never what was wrong.
+
 ## The question is not the query
 
 `searchQuery(from:)` used to send the user's question to Tavily verbatim. That
