@@ -10,6 +10,11 @@ public struct TranslationOutcome: Sendable {
     public var redactedKinds: Set<RedactionSpan.Kind>
     /// True when nothing left the device.
     public var servedEntirelyFromCache: Bool
+    /// The model that produced this, and the ones that failed first. A silent
+    /// fallback leaves someone wondering why a screen reads differently from
+    /// the last one.
+    public var modelUsed: String
+    public var skippedModels: [ModelFailure]
 
     public init(
         blocks: [TranslatedBlock],
@@ -17,7 +22,9 @@ public struct TranslationOutcome: Sendable {
         networkBlocks: Int = 0,
         redactedCount: Int = 0,
         redactedKinds: Set<RedactionSpan.Kind> = [],
-        servedEntirelyFromCache: Bool = false
+        servedEntirelyFromCache: Bool = false,
+        modelUsed: String = "",
+        skippedModels: [ModelFailure] = []
     ) {
         self.blocks = blocks
         self.cacheHits = cacheHits
@@ -25,6 +32,8 @@ public struct TranslationOutcome: Sendable {
         self.redactedCount = redactedCount
         self.redactedKinds = redactedKinds
         self.servedEntirelyFromCache = servedEntirelyFromCache
+        self.modelUsed = modelUsed
+        self.skippedModels = skippedModels
     }
 }
 
@@ -48,7 +57,7 @@ public struct TranslationPipeline: Sendable {
     private let client: NebiusClient
     private let cache: TranslationCache?
     private let settings: AppSettings
-    private let textModel: String
+    private let textModel: ModelChain
     private let search: TavilyClient?
     private let memory: MemoryStore?
 
@@ -56,7 +65,7 @@ public struct TranslationPipeline: Sendable {
         client: NebiusClient,
         cache: TranslationCache?,
         settings: AppSettings,
-        textModel: String,
+        textModel: ModelChain,
         search: TavilyClient? = nil,
         memory: MemoryStore? = nil
     ) {
@@ -112,6 +121,11 @@ public struct TranslationPipeline: Sendable {
 
         var redactedCount = 0
         var redactedKinds: Set<RedactionSpan.Kind> = []
+        // Which model actually produced the translation, so a silent fallback
+        // can be reported rather than leaving the user wondering why a screen
+        // reads differently from the last one.
+        var modelUsed = textModel.primary
+        var skippedModels: [ModelFailure] = []
 
         if !misses.isEmpty {
             guard settings.cloudEnabled else { throw PipelineError.cloudDisabled }
@@ -123,7 +137,10 @@ public struct TranslationPipeline: Sendable {
                 redactedCount += map.count
                 redactedKinds.formUnion(map.kindsFound)
 
-                let units = try await requestTranslation(for: safeBlocks)
+                let attempt = try await requestTranslation(for: safeBlocks)
+                let units = attempt.value
+                modelUsed = attempt.model
+                skippedModels.append(contentsOf: attempt.skipped)
                 var byID = Dictionary(
                     units.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }
                 )
@@ -136,7 +153,7 @@ public struct TranslationPipeline: Sendable {
                 let omitted = safeBlocks.filter { byID[$0.id] == nil }
                 if !omitted.isEmpty,
                    let recovered = try? await requestTranslation(for: omitted) {
-                    for unit in recovered where byID[unit.id] == nil {
+                    for unit in recovered.value where byID[unit.id] == nil {
                         byID[unit.id] = unit
                     }
                 }
@@ -181,22 +198,31 @@ public struct TranslationPipeline: Sendable {
             networkBlocks: misses.count,
             redactedCount: redactedCount,
             redactedKinds: redactedKinds,
-            servedEntirelyFromCache: misses.isEmpty
+            servedEntirelyFromCache: misses.isEmpty,
+            modelUsed: modelUsed,
+            skippedModels: skippedModels
         )
     }
 
-    private func requestTranslation(for blocks: [TextBlock]) async throws -> [TranslationUnit] {
-        let raw = try await client.complete(
-            messages: [
-                .system(Prompts.translateSystem),
-                .user(Prompts.translateUserMessage(blocks: blocks)),
-            ],
-            model: textModel,
-            temperature: 0.1,
-            maxTokens: 8192,
-            responseFormat: .jsonSchema(Schemas.translationUnits)
-        )
-        return try JSONExtraction.decode([TranslationUnit].self, from: raw)
+    private func requestTranslation(
+        for blocks: [TextBlock]
+    ) async throws -> Attempt<[TranslationUnit]> {
+        // The decode is inside the attempt on purpose: a model that ignores
+        // the response format fails here, not at the HTTP layer, and that is
+        // exactly the failure a different model fixes.
+        try await ModelFallback.run(chain: textModel) { model in
+            let raw = try await client.complete(
+                messages: [
+                    .system(Prompts.translateSystem),
+                    .user(Prompts.translateUserMessage(blocks: blocks)),
+                ],
+                model: model,
+                temperature: 0.1,
+                maxTokens: 8192,
+                responseFormat: .jsonSchema(Schemas.translationUnits)
+            )
+            return try JSONExtraction.decode([TranslationUnit].self, from: raw)
+        }
     }
 
     // MARK: - Explain
@@ -204,24 +230,26 @@ public struct TranslationPipeline: Sendable {
     public func explain(
         imageBase64: String,
         mimeType: String = "image/jpeg",
-        visionModel: String
-    ) async throws -> ScreenExplanation {
+        visionModel: ModelChain
+    ) async throws -> Attempt<ScreenExplanation> {
         guard settings.cloudEnabled else { throw PipelineError.cloudDisabled }
 
-        let raw = try await client.complete(
-            messages: [
-                .system(Prompts.explainSystem),
-                ChatMessage(role: .user, content: [
-                    .imageBase64(imageBase64, mimeType: mimeType),
-                    .text(Prompts.explainUserMessage),
-                ]),
-            ],
-            model: visionModel,
-            temperature: 0.2,
-            maxTokens: 1024,
-            responseFormat: .jsonSchema(Schemas.screenExplanation)
-        )
-        return try JSONExtraction.decode(ScreenExplanation.self, from: raw)
+        return try await ModelFallback.run(chain: visionModel) { model in
+            let raw = try await client.complete(
+                messages: [
+                    .system(Prompts.explainSystem),
+                    ChatMessage(role: .user, content: [
+                        .imageBase64(imageBase64, mimeType: mimeType),
+                        .text(Prompts.explainUserMessage),
+                    ]),
+                ],
+                model: model,
+                temperature: 0.2,
+                maxTokens: 1024,
+                responseFormat: .jsonSchema(Schemas.screenExplanation)
+            )
+            return try JSONExtraction.decode(ScreenExplanation.self, from: raw)
+        }
     }
 
     // MARK: - Chat
@@ -240,17 +268,23 @@ public struct TranslationPipeline: Sendable {
         public let searchStatus: SearchStatus
         /// What the agent did to get here. Empty on the one-shot path.
         public let steps: [AgentStep]
+        public let modelUsed: String
+        public let skippedModels: [ModelFailure]
 
         public init(
             text: String,
             sources: [WebSearchResult] = [],
             searchStatus: SearchStatus = .skipped,
-            steps: [AgentStep] = []
+            steps: [AgentStep] = [],
+            modelUsed: String = "",
+            skippedModels: [ModelFailure] = []
         ) {
             self.text = text
             self.sources = sources
             self.searchStatus = searchStatus
             self.steps = steps
+            self.modelUsed = modelUsed
+            self.skippedModels = skippedModels
         }
     }
 
@@ -266,7 +300,7 @@ public struct TranslationPipeline: Sendable {
     /// rather than the default.
     public func research(
         in conversation: ScreenConversation,
-        model: String? = nil,
+        model: ModelChain? = nil,
         onStep: (@Sendable (AgentStep) async -> Void)? = nil
     ) async throws -> Answer {
         guard settings.cloudEnabled else { throw PipelineError.cloudDisabled }
@@ -305,21 +339,24 @@ public struct TranslationPipeline: Sendable {
             tools.append(RecallTool(memory: memory))
         }
 
-        let agent = Agent(
-            client: client,
-            model: model ?? textModel,
-            tools: tools,
-            maxSteps: 5,
-            maxTokens: 3000
+        let messages = safeConversation.requestMessages(
+            instructions: Prompts.agentSystem,
+            memory: recalled
         )
 
-        let outcome = try await agent.run(
-            messages: safeConversation.requestMessages(
-                instructions: Prompts.agentSystem,
-                memory: recalled
-            ),
-            onStep: onStep
-        )
+        // The whole loop falls back together rather than mid-run: swapping
+        // models halfway would hand a new model a transcript of tool calls it
+        // never made.
+        let attempt = try await ModelFallback.run(chain: model ?? textModel) { candidate in
+            try await Agent(
+                client: client,
+                model: candidate,
+                tools: tools,
+                maxSteps: 5,
+                maxTokens: 3000
+            ).run(messages: messages, onStep: onStep)
+        }
+        let outcome = attempt.value
 
         let sources = await log.all
         let searched = outcome.steps.filter { $0.tool == "search_web" && !$0.failed }.count
@@ -327,7 +364,7 @@ public struct TranslationPipeline: Sendable {
         let text = map.restore(in: outcome.text)
         if memory != nil, settings.memoryEnabled, !question.isEmpty {
             let conversationCopy = safeConversation
-            let learningModel = model ?? textModel
+            let learningModel = attempt.model
             Task.detached(priority: .background) { [self] in
                 await learn(
                     from: conversationCopy, question: question,
@@ -340,7 +377,9 @@ public struct TranslationPipeline: Sendable {
             text: text,
             sources: sources,
             searchStatus: searched > 0 ? .searched(count: sources.count) : .skipped,
-            steps: outcome.steps
+            steps: outcome.steps,
+            modelUsed: attempt.model,
+            skippedModels: attempt.skipped
         )
     }
 
@@ -352,7 +391,7 @@ public struct TranslationPipeline: Sendable {
     public func answer(
         in conversation: ScreenConversation,
         forceSearch: Bool = false,
-        model: String? = nil
+        model: ModelChain? = nil
     ) async throws -> Answer {
         guard settings.cloudEnabled else { throw PipelineError.cloudDisabled }
 
@@ -388,7 +427,7 @@ public struct TranslationPipeline: Sendable {
             conversation: safeConversation,
             memory: recalled,
             force: forceSearch,
-            model: model ?? textModel
+            model: (model ?? textModel).primary
         )
 
         // The model is told the outcome either way. Handed an empty grounding
@@ -396,19 +435,22 @@ public struct TranslationPipeline: Sendable {
         // that it has no search tool at all.
         let grounding = found?.grounding() ?? status.modelNote
 
-        let raw = try await client.complete(
-            messages: safeConversation.requestMessages(
-                instructions: Prompts.chatSystem,
-                searchGrounding: grounding,
-                memory: recalled
-            ),
-            model: model ?? textModel,
-            temperature: 0.3,
-            // Generous, because the default text model reasons before
-            // answering: at 900 the chain of thought consumed the whole budget
-            // and `content` came back empty.
-            maxTokens: 3000
-        )
+        let attempt = try await ModelFallback.run(chain: model ?? textModel) { candidate in
+            try await client.complete(
+                messages: safeConversation.requestMessages(
+                    instructions: Prompts.chatSystem,
+                    searchGrounding: grounding,
+                    memory: recalled
+                ),
+                model: candidate,
+                temperature: 0.3,
+                // Generous, because the default text model reasons before
+                // answering: at 900 the chain of thought consumed the whole
+                // budget and `content` came back empty.
+                maxTokens: 3000
+            )
+        }
+        let raw = attempt.value
         let text = map.restore(in: raw)
 
         // Detached on purpose. Remembering is worth a round trip but not worth
@@ -418,7 +460,7 @@ public struct TranslationPipeline: Sendable {
         // into an error either.
         if memory != nil, settings.memoryEnabled {
             let conversationCopy = safeConversation
-            let learningModel = model ?? textModel
+            let learningModel = attempt.model
             Task.detached(priority: .background) { [self] in
                 await learn(
                     from: conversationCopy, question: question,
@@ -430,7 +472,9 @@ public struct TranslationPipeline: Sendable {
         return Answer(
             text: text,
             sources: found?.results ?? [],
-            searchStatus: status
+            searchStatus: status,
+            modelUsed: attempt.model,
+            skippedModels: attempt.skipped
         )
     }
 
@@ -619,24 +663,26 @@ public struct TranslationPipeline: Sendable {
     public func assessRisk(
         imageBase64: String,
         mimeType: String = "image/jpeg",
-        visionModel: String
-    ) async throws -> RiskAssessment {
+        visionModel: ModelChain
+    ) async throws -> Attempt<RiskAssessment> {
         guard settings.cloudEnabled else { throw PipelineError.cloudDisabled }
 
-        let raw = try await client.complete(
-            messages: [
-                .system(Prompts.riskSystem),
-                ChatMessage(role: .user, content: [
-                    .imageBase64(imageBase64, mimeType: mimeType),
-                    .text(Prompts.riskUserMessage),
-                ]),
-            ],
-            model: visionModel,
-            temperature: 0.1,
-            maxTokens: 700,
-            responseFormat: .jsonSchema(Schemas.riskAssessment)
-        )
-        return try JSONExtraction.decode(RiskAssessment.self, from: raw)
+        return try await ModelFallback.run(chain: visionModel) { model in
+            let raw = try await client.complete(
+                messages: [
+                    .system(Prompts.riskSystem),
+                    ChatMessage(role: .user, content: [
+                        .imageBase64(imageBase64, mimeType: mimeType),
+                        .text(Prompts.riskUserMessage),
+                    ]),
+                ],
+                model: model,
+                temperature: 0.1,
+                maxTokens: 700,
+                responseFormat: .jsonSchema(Schemas.riskAssessment)
+            )
+            return try JSONExtraction.decode(RiskAssessment.self, from: raw)
+        }
     }
 
     // MARK: - Compose
@@ -648,16 +694,18 @@ public struct TranslationPipeline: Sendable {
         guard settings.cloudEnabled else { throw PipelineError.cloudDisabled }
 
         let (safe, map) = Redactor.redact(text: english, policy: settings.redactionPolicy)
-        let raw = try await client.complete(
-            messages: [
-                .system(Prompts.composeSystem(register: register)),
-                .user(Prompts.composeUserMessage(english: safe)),
-            ],
-            model: textModel,
-            temperature: 0.3,
-            maxTokens: 1024,
-            responseFormat: .jsonSchema(Schemas.composeResult)
-        )
+        let raw = try await ModelFallback.run(chain: textModel) { candidate in
+            try await client.complete(
+                messages: [
+                    .system(Prompts.composeSystem(register: register)),
+                    .user(Prompts.composeUserMessage(english: safe)),
+                ],
+                model: candidate,
+                temperature: 0.3,
+                maxTokens: 1024,
+                responseFormat: .jsonSchema(Schemas.composeResult)
+            )
+        }.value
         var result = try JSONExtraction.decode(ComposeResult.self, from: raw)
         result.dutch = map.restore(in: result.dutch)
         result.notes = result.notes.map { map.restore(in: $0) }

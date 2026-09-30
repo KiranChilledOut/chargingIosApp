@@ -186,7 +186,7 @@ final class PipelineTests: XCTestCase {
 
         let result = try await pipeline.explain(
             imageBase64: "AAAA", visionModel: "test/vision-model"
-        )
+        ).value
         XCTAssertEqual(result.summary, "Payment failed")
         XCTAssertEqual(result.warnings, ["Auto-renews monthly"])
     }
@@ -421,7 +421,7 @@ final class ChatPipelineTests: XCTestCase {
         )
         let result = try await pipeline(transport).assessRisk(
             imageBase64: "QUJD", visionModel: "test/vision-model"
-        )
+        ).value
         XCTAssertEqual(result.level, .danger)
         XCTAssertTrue(transport.recordedBodies().joined().contains("data:image/jpeg;base64,QUJD"))
     }

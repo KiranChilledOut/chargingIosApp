@@ -370,6 +370,44 @@ requirements** — and the answer had to admit it still could not give a figure.
   needs no lookup; the globe in the composer still forces one, because pressing
   it is a statement.
 
+## Model fallback is about the failure, not the failing
+
+`ModelChain` is an ordered list of models; `ModelFallback.run` tries each until
+one works. The policy — `worthTryingAnother` — is the whole design, and it is
+mostly about *refusing* to fall back.
+
+Falling back on everything is worse than not falling back at all. A rejected
+API key fails identically on every model, so a three-model chain turns one
+immediate error into three round trips, the same message, and a bill for two of
+them. A dead network is the same: three timeouts for one question.
+
+So the test is not "did it fail" but "is the failure about this model":
+
+- **Falls back:** `clientError` (deployed text-only and rejecting an image,
+  retired model, context too long), `JSONExtraction.Error` (ignored the
+  response format — the failure that stopped translation working),
+  `emptyCompletion`, `truncated`, `serverError`, `rateLimited`.
+- **Does not:** `unauthorized`, `missingAPIKey` (the account), `URLError` (the
+  network), `PipelineError`, `WebSearchError`, and anything unrecognised —
+  a fallback costs a round trip and real money, so an unproven guess is the
+  wrong default.
+
+Other decisions:
+
+- **The JSON decode happens inside the attempt.** A model that ignores the
+  schema fails at decode, not at HTTP, so a fallback wrapping only the request
+  would miss the exact case it was built for.
+- **The agent loop falls back whole, never mid-run.** Swapping models halfway
+  would hand a new model a transcript of tool calls it never made.
+- **The last model's error is thrown, not the first.** The last one ran with
+  nothing left to try, so its reason is the one that describes the state.
+- **`ModelChain` is `ExpressibleByStringLiteral`**, which is why every existing
+  call site and test still reads `textModel: "some/model"`.
+- **A fallback is reported, never silent.** `Answer.skippedModels` and
+  `TranslationOutcome.skippedModels` carry it, and chat shows a line naming
+  what failed and what answered instead — otherwise the reply just reads
+  differently and nothing explains why.
+
 ## The agent loop
 
 `research(in:model:onStep:)` is the deep path, beside the one-shot `answer`.

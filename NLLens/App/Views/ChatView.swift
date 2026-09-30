@@ -106,6 +106,11 @@ struct ChatView: View {
                             .font(Theme.Typeface.caption)
                             .foregroundStyle(.secondary)
                     }
+                    if let note = session.fallbackNotes[message.id] {
+                        Label(note, systemImage: "arrow.triangle.branch")
+                            .font(Theme.Typeface.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
         }

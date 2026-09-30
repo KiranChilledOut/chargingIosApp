@@ -80,8 +80,8 @@ struct ExplainScreenIntent: AppIntent {
             let explanation = try await pipeline.explain(
                 imageBase64: jpeg.base64EncodedString(),
                 mimeType: "image/jpeg",
-                visionModel: environment.visionModel
-            )
+                visionModel: environment.visionChain
+            ).value
             return .result(
                 dialog: IntentDialog(stringLiteral: explanation.summary),
                 view: NLLensSnippetView(content: .explanation(explanation))

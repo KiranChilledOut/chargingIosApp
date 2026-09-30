@@ -58,6 +58,8 @@ public final class AppEnvironment: @unchecked Sendable {
         static let settings = "nllens.settings"
         static let textModel = "nllens.textModel"
         static let visionModel = "nllens.visionModel"
+        static let textBackups = "nllens.textBackups"
+        static let visionBackups = "nllens.visionBackups"
     }
 
     public var settings: AppSettings {
@@ -81,6 +83,28 @@ public final class AppEnvironment: @unchecked Sendable {
     public var visionModel: String {
         get { defaults.string(forKey: Key.visionModel) ?? NebiusConfiguration.defaultVisionModel }
         set { defaults.set(newValue, forKey: Key.visionModel) }
+    }
+
+    /// Models to try when the primary fails in a way another model could fix.
+    ///
+    /// Stored beside the primary rather than as one list, so an existing
+    /// install keeps its chosen model and simply gains an empty backup list.
+    public var textBackups: [String] {
+        get { defaults.stringArray(forKey: Key.textBackups) ?? [] }
+        set { defaults.set(newValue, forKey: Key.textBackups) }
+    }
+
+    public var visionBackups: [String] {
+        get { defaults.stringArray(forKey: Key.visionBackups) ?? [] }
+        set { defaults.set(newValue, forKey: Key.visionBackups) }
+    }
+
+    public var textChain: ModelChain {
+        ModelChain(primary: textModel, backups: textBackups)
+    }
+
+    public var visionChain: ModelChain {
+        ModelChain(primary: visionModel, backups: visionBackups)
     }
 
     public var apiKey: String { Keychain.resolvedAPIKey() }
@@ -152,7 +176,7 @@ public final class AppEnvironment: @unchecked Sendable {
             client: client,
             cache: settings.cacheEnabled ? await cache() : nil,
             settings: settings,
-            textModel: textModel,
+            textModel: textChain,
             search: searchClient,
             memory: settings.memoryEnabled ? await memory() : nil
         )

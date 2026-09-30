@@ -14,6 +14,9 @@ final class ChatSession: ObservableObject {
     @Published private(set) var sources: [UUID: [WebSearchResult]] = [:]
     /// Anything worth saying about a lookup — no key, or it failed.
     @Published private(set) var notes: [UUID: String] = [:]
+    /// Said when a backup model answered. Silent fallback is worse than none:
+    /// the reply reads differently and nothing explains why.
+    @Published private(set) var fallbackNotes: [UUID: String] = [:]
 
     /// Look up for the next message regardless of the setting.
     @Published var forceSearch = false
@@ -123,6 +126,7 @@ final class ChatSession: ObservableObject {
                 if !answer.sources.isEmpty { sources[id] = answer.sources }
                 notes[id] = answer.searchStatus.note
                 if !answer.steps.isEmpty { steps[id] = answer.steps }
+                if let note = Self.fallbackNote(for: answer) { fallbackNotes[id] = note }
             }
             // One-shot, like the paperclip in a mail client: forcing a lookup
             // is a decision about this question, not about the conversation.
@@ -137,6 +141,15 @@ final class ChatSession: ObservableObject {
             draft = question
             errorMessage = Self.message(for: error)
         }
+    }
+
+    /// Names the model that answered, and the one that could not.
+    static func fallbackNote(for answer: TranslationPipeline.Answer) -> String? {
+        guard let failed = answer.skippedModels.first else { return nil }
+
+        let shortName: (String) -> String = { $0.split(separator: "/").last.map(String.init) ?? $0 }
+        return "\(shortName(failed.model)) failed, so \(shortName(answer.modelUsed)) "
+            + "answered instead — \(failed.reason)"
     }
 
     /// Re-asks the last question after a failure.

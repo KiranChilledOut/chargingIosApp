@@ -8,6 +8,8 @@ struct SettingsView: View {
     @State private var searchKeyWarning: String?
     @State private var keyCheck: TavilyKeyCheck?
     @State private var remembered: [MemoryFact] = []
+    @State private var textBackups = AppEnvironment.shared.textBackups
+    @State private var visionBackups = AppEnvironment.shared.visionBackups
     @State private var isCheckingKey = false
     /// Masked, and read from the keychain rather than the field — the field
     /// starts empty on every launch, so it cannot show what is actually saved.
@@ -180,11 +182,24 @@ struct SettingsView: View {
                                 Text(model.id).tag(model.id)
                             }
                         }
+                        BackupPicker(
+                            title: "Text backup",
+                            models: availableModels,
+                            exclude: textModel,
+                            selection: $textBackups
+                        )
+
                         Picker("Vision model", selection: $visionModel) {
                             ForEach(availableModels) { model in
                                 Text(model.id).tag(model.id)
                             }
                         }
+                        BackupPicker(
+                            title: "Vision backup",
+                            models: availableModels,
+                            exclude: visionModel,
+                            selection: $visionBackups
+                        )
                     }
 
                     Button {
@@ -224,6 +239,12 @@ struct SettingsView: View {
             }
             .onChange(of: visionModel) { _, newValue in
                 AppEnvironment.shared.visionModel = newValue
+            }
+            .onChange(of: textBackups) { _, newValue in
+                AppEnvironment.shared.textBackups = newValue
+            }
+            .onChange(of: visionBackups) { _, newValue in
+                AppEnvironment.shared.visionBackups = newValue
             }
             .alert("Key saved", isPresented: $savedConfirmation) {
                 Button("OK", role: .cancel) {}
@@ -371,5 +392,67 @@ private struct Step: View {
                 .foregroundStyle(.secondary)
             Text(text)
         }
+    }
+}
+
+/// Picks the models to fall back to, in order.
+///
+/// Two slots rather than an editable list: the value is almost entirely in the
+/// first backup, the second is insurance, and a reorderable list is a lot of
+/// interface for a setting most people touch once.
+private struct BackupPicker: View {
+    let title: String
+    let models: [ModelInfo]
+    /// The primary, which would otherwise be offered as its own backup and
+    /// fail twice before moving on.
+    let exclude: String
+    @Binding var selection: [String]
+
+    var body: some View {
+        Picker("\(title) 1", selection: first) {
+            Text("None").tag("")
+            ForEach(candidates) { model in
+                Text(model.id).tag(model.id)
+            }
+        }
+
+        // The second only appears once the first is set: an empty slot above a
+        // filled one is a state that does nothing and invites wondering why.
+        if !firstValue.isEmpty {
+            Picker("\(title) 2", selection: second) {
+                Text("None").tag("")
+                ForEach(candidates.filter { $0.id != firstValue }) { model in
+                    Text(model.id).tag(model.id)
+                }
+            }
+        }
+    }
+
+    private var candidates: [ModelInfo] {
+        models.filter { $0.id != exclude }
+    }
+
+    private var firstValue: String { selection.first ?? "" }
+
+    private var first: Binding<String> {
+        Binding(
+            get: { firstValue },
+            set: { value in
+                // Clearing the first drops the second with it, rather than
+                // silently promoting a model the user never chose as primary
+                // backup.
+                selection = value.isEmpty ? [] : [value] + selection.dropFirst()
+            }
+        )
+    }
+
+    private var second: Binding<String> {
+        Binding(
+            get: { selection.count > 1 ? selection[1] : "" },
+            set: { value in
+                guard !firstValue.isEmpty else { return }
+                selection = value.isEmpty ? [firstValue] : [firstValue, value]
+            }
+        )
     }
 }

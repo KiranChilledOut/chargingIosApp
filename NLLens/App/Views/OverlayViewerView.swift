@@ -405,8 +405,8 @@ struct OverlayViewerView: View {
             let result = try await pipeline.explain(
                 imageBase64: jpeg.base64EncodedString(),
                 mimeType: "image/jpeg",
-                visionModel: environment.visionModel
-            )
+                visionModel: environment.visionChain
+            ).value
             explanation = result
             // Later chat turns inherit this reading instead of re-sending the
             // image, which is what keeps a conversation cheap.
@@ -431,8 +431,8 @@ struct OverlayViewerView: View {
             let pipeline = await environment.pipeline()
             let assessment = try await pipeline.assessRisk(
                 imageBase64: jpeg.base64EncodedString(),
-                visionModel: environment.visionModel
-            )
+                visionModel: environment.visionChain
+            ).value
             risk = assessment
 
             if assessment.isWorthSurfacing {
