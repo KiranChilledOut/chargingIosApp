@@ -23,6 +23,7 @@
 		60224C35E1C1F01785185DEF /* ModelCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81BD2B3CB0FCA612C01F31EB /* ModelCatalog.swift */; };
 		6A93E9BBF12836284986DA0E /* GlossaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BEC8D76E1A136AA6A690868 /* GlossaryView.swift */; };
 		6E8C42593113AF36CCE17E42 /* IncomingImageCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C2763F41834E1C650329915 /* IncomingImageCoordinator.swift */; };
+		754CF89BEB97FCD1FBC67BF7 /* CameraPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 003FC0C1A8AB2B953C98EF84 /* CameraPicker.swift */; };
 		79BF1A520A39EA20FB20524D /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DF1C106996E9CFDB3AFB0E9 /* ChatView.swift */; };
 		840A2D85B4A56B52EE23CD8E /* OverlayPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4DE0A27576080C24580BD33 /* OverlayPresenter.swift */; };
 		87443C9012D304603640A3BE /* RiskBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42960B0BE463BBECE7C9BCBE /* RiskBanner.swift */; };
@@ -41,6 +42,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		003FC0C1A8AB2B953C98EF84 /* CameraPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPicker.swift; sourceTree = "<group>"; };
 		0BEC8D76E1A136AA6A690868 /* GlossaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlossaryView.swift; sourceTree = "<group>"; };
 		108F7D9B13316300B0A8D625 /* SnippetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetViews.swift; sourceTree = "<group>"; };
 		1D14B6B1549AB74ECA770A1C /* ExplanationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExplanationView.swift; sourceTree = "<group>"; };
@@ -147,6 +149,7 @@
 		D7FE3FABC521F678A28625EC /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				003FC0C1A8AB2B953C98EF84 /* CameraPicker.swift */,
 				9DF1C106996E9CFDB3AFB0E9 /* ChatView.swift */,
 				B4A64FDA227F9D494B7CA388 /* ComposeView.swift */,
 				AE55A9E0B960DEF6C79C313B /* CorrectionSheet.swift */,
@@ -253,6 +256,7 @@
 			files = (
 				E88F7573BCE3DB2AC3F95338 /* AppEnvironment.swift in Sources */,
 				5D268432F94D8F7F86241086 /* ArchiveStore.swift in Sources */,
+				754CF89BEB97FCD1FBC67BF7 /* CameraPicker.swift in Sources */,
 				E643B10D405D951E37B3A9BE /* ChatSession.swift in Sources */,
 				79BF1A520A39EA20FB20524D /* ChatView.swift in Sources */,
 				915B6DD5FC77C90682F9B208 /* ComposeView.swift in Sources */,

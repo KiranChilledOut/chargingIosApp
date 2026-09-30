@@ -14,6 +14,7 @@ struct ReviewView: View {
     @State private var editing: TranslatedBlock?
     @State private var isLoading = true
     @State private var pickedItem: PhotosPickerItem?
+    @State private var showingCamera = false
     @State private var isTranslating = false
     @State private var errorMessage: String?
     @State private var offlineBlocks: [TextBlock] = []
@@ -82,10 +83,30 @@ struct ReviewView: View {
                     .disabled(isTranslating)
                     .accessibilityLabel("Translate a screenshot from Photos")
                 }
+
+                // Hidden where there is no camera — a simulator, or an iPad
+                // without a usable one — rather than shown and then failing.
+                if CameraPicker.isAvailable {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button {
+                            showingCamera = true
+                        } label: {
+                            Image(systemName: "camera")
+                        }
+                        .disabled(isTranslating)
+                        .accessibilityLabel("Photograph a letter or sign to translate")
+                    }
+                }
             }
             .onChange(of: pickedItem) { _, item in
                 guard let item else { return }
                 Task { await translatePicked(item) }
+            }
+            .fullScreenCover(isPresented: $showingCamera) {
+                CameraPicker { image in
+                    Task { await translate(image) }
+                }
+                .ignoresSafeArea()
             }
             .fullScreenCover(item: $openMode) { mode in
                 if let snapshot {
@@ -175,7 +196,21 @@ struct ReviewView: View {
             errorMessage = "That image could not be read."
             return
         }
+        await runTranslation(on: image)
+    }
 
+    /// The camera path. Same pipeline, different doorway.
+    private func translate(_ image: UIImage) async {
+        isTranslating = true
+        errorMessage = nil
+        offlineBlocks = []
+        offlineImage = nil
+        defer { isTranslating = false }
+
+        await runTranslation(on: image)
+    }
+
+    private func runTranslation(on image: UIImage) async {
         do {
             let result = try await ScreenTranslator.translate(image: image)
             // Open the viewer, exactly as Back Tap and the share sheet do.
