@@ -19,8 +19,20 @@ public struct NebiusConfiguration: Sendable, Equatable, Codable {
     /// Defaults point at models observed on Token Factory, but the catalog
     /// changes. The app fetches `/v1/models` at runtime and lets you pick,
     /// so a wrong default here is a one-tap fix rather than a rebuild.
-    public static let defaultTextModel = "Qwen/Qwen3-235B-A22B-Instruct-2507"
-    public static let defaultVisionModel = "google/gemma-3-27b-it"
+    /// One model for both paths, because it does both: DeepSeek-V4.1-Flash is
+    /// natively multimodal — its own vision encoder, interleaved image and
+    /// text — so the screenshot and the conversation go to the same place.
+    public static let defaultTextModel = "deepseek-ai/DeepSeek-V4.1-Flash"
+    public static let defaultVisionModel = "deepseek-ai/DeepSeek-V4.1-Flash"
+
+    /// Which makes the backups matter more, not less. One model serving both
+    /// primaries means one bad deployment takes translation *and* the
+    /// screenshot paths down together — exactly the position a single model
+    /// for both slots put this app in before. The backups are deliberately
+    /// different models, and the vision backup is one whose image support has
+    /// been relied on here for months.
+    public static let defaultTextBackups = ["Qwen/Qwen3-235B-A22B-Instruct-2507"]
+    public static let defaultVisionBackups = ["google/gemma-3-27b-it"]
     public static let defaultBaseURL = URL(string: "https://api.tokenfactory.nebius.com/v1")!
 
     public init(

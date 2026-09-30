@@ -235,3 +235,50 @@ final class PipelineFallbackTests: XCTestCase {
         XCTAssertEqual(outcome.skippedModels.map(\.model), ["loose/model"])
     }
 }
+
+/// One model serving both primaries is convenient and concentrates risk: a bad
+/// deployment takes translation and the screenshot paths down together, which
+/// is the position a single model for both slots put this app in before.
+final class DefaultModelTests: XCTestCase {
+
+    func testOneMultimodalModelServesBothSlots() {
+        XCTAssertEqual(
+            NebiusConfiguration.defaultTextModel,
+            NebiusConfiguration.defaultVisionModel
+        )
+    }
+
+    func testTheBackupsAreDifferentModelsFromThePrimary() {
+        XCTAssertFalse(
+            NebiusConfiguration.defaultTextBackups.contains(NebiusConfiguration.defaultTextModel),
+            "a backup equal to the primary fails twice before moving on"
+        )
+        XCTAssertFalse(
+            NebiusConfiguration.defaultVisionBackups.contains(NebiusConfiguration.defaultVisionModel)
+        )
+    }
+
+    func testTheTwoSlotsDoNotShareABackupEither() {
+        // Sharing one would mean a single bad backup leaves both paths with
+        // nowhere to go once the shared primary fails.
+        XCTAssertTrue(
+            Set(NebiusConfiguration.defaultTextBackups)
+                .isDisjoint(with: NebiusConfiguration.defaultVisionBackups)
+        )
+    }
+
+    func testTheDefaultChainsAreUsableAsBuilt() {
+        let text = ModelChain(
+            primary: NebiusConfiguration.defaultTextModel,
+            backups: NebiusConfiguration.defaultTextBackups
+        )
+        let vision = ModelChain(
+            primary: NebiusConfiguration.defaultVisionModel,
+            backups: NebiusConfiguration.defaultVisionBackups
+        )
+        // Two entries each: the dedupe would collapse them if a backup
+        // repeated its primary.
+        XCTAssertEqual(text.models.count, 2)
+        XCTAssertEqual(vision.models.count, 2)
+    }
+}

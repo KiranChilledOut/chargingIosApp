@@ -90,12 +90,12 @@ public final class AppEnvironment: @unchecked Sendable {
     /// Stored beside the primary rather than as one list, so an existing
     /// install keeps its chosen model and simply gains an empty backup list.
     public var textBackups: [String] {
-        get { defaults.stringArray(forKey: Key.textBackups) ?? [] }
+        get { defaults.stringArray(forKey: Key.textBackups) ?? NebiusConfiguration.defaultTextBackups }
         set { defaults.set(newValue, forKey: Key.textBackups) }
     }
 
     public var visionBackups: [String] {
-        get { defaults.stringArray(forKey: Key.visionBackups) ?? [] }
+        get { defaults.stringArray(forKey: Key.visionBackups) ?? NebiusConfiguration.defaultVisionBackups }
         set { defaults.set(newValue, forKey: Key.visionBackups) }
     }
 

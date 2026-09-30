@@ -370,6 +370,24 @@ requirements** — and the answer had to admit it still could not give a figure.
   needs no lookup; the globe in the composer still forces one, because pressing
   it is a statement.
 
+## One model for both slots, and why the backups matter more for it
+
+The default for both `textModel` and `visionModel` is
+`deepseek-ai/DeepSeek-V4.1-Flash`, which is natively multimodal — its own
+vision encoder, interleaved image and text — so the screenshot and the
+conversation go to the same place.
+
+That concentrates risk rather than removing it. One model serving both
+primaries means one bad deployment takes translation *and* the screenshot
+paths down together, which is exactly the position a single model for both
+slots produced before. So the defaults ship with backups, deliberately
+different models, and the two slots do not share one.
+
+**A model being multimodal upstream does not mean the route serves images.**
+Nebius lists Qwen3.5 as text-to-text despite the upstream model being
+multimodal, and GLM 5.3 is served text-only there. The model card is the claim;
+only a request settles it.
+
 ## Model fallback is about the failure, not the failing
 
 `ModelChain` is an ordered list of models; `ModelFallback.run` tries each until
