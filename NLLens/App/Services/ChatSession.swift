@@ -64,6 +64,15 @@ final class ChatSession: ObservableObject {
     /// The model this conversation will actually use.
     var activeModel: String { modelOverride ?? environment.textModel }
 
+    /// The override as a chain, keeping the configured backups.
+    ///
+    /// Picking a model for one conversation is a preference about the
+    /// *primary*, not a request to give up resilience — so the backups still
+    /// apply behind it.
+    private var overrideChain: ModelChain? {
+        modelOverride.map { ModelChain(primary: $0, backups: environment.textBackups) }
+    }
+
     /// Short name for the picker — the vendor prefix is noise in a menu.
     var activeModelLabel: String {
         activeModel.split(separator: "/").last.map(String.init) ?? activeModel
@@ -112,13 +121,13 @@ final class ChatSession: ObservableObject {
         do {
             let pipeline = await environment.pipeline()
             let answer = digging
-                ? try await pipeline.research(in: conversation, model: modelOverride) { step in
+                ? try await pipeline.research(in: conversation, model: overrideChain) { step in
                     await MainActor.run { self.liveSteps.append(step) }
                 }
                 : try await pipeline.answer(
                     in: conversation,
                     forceSearch: forceSearch,
-                    model: modelOverride
+                    model: overrideChain
                 )
             conversation.append(role: .assistant, text: answer.text)
 
